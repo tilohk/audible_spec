@@ -7,7 +7,7 @@
 namespace its
 {
 RenderJob::RenderJob (Callback callback)
-    : juce::Thread ("Image To Sound render"), onFinished (std::move (callback))
+    : juce::Thread ("audible_spec render"), onFinished (std::move (callback))
 {
 }
 

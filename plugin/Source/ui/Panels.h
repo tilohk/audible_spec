@@ -19,12 +19,12 @@ public:
 
     void setExpanded (bool shouldBeExpanded); // does not call onExpandedChanged
     bool isExpanded() const { return expanded; }
-    static constexpr int barHeight = 66, bodyHeight = 226; // body: hint + group titles + 7 rows
+    static constexpr int barHeight = 66, bodyHeight = 154; // body: hint + group titles + 4 rows
     int getPreferredHeight() const { return barHeight + (expanded ? bodyHeight : 0); }
 
     juce::ComboBox& getPresetBox() { return presetBox; } // filled by the editor
 
-    std::function<void()> onRender, onCancel;
+    std::function<void()> onRender, onCancel, onRandomize;
     std::function<void (bool expanded)> onExpandedChanged; // user clicked the fold toggle
 
     void paint (juce::Graphics&) override;
@@ -48,6 +48,8 @@ private:
     juce::ValueTree tree;
 
     bool expanded = true;
+    class DiceButton;
+    std::unique_ptr<DiceButton> diceButton;
     juce::TextButton foldButton;
     juce::Label presetLabel{{}, "Render preset"}, hint{{}, "Settings apply when you press Render"};
     juce::ComboBox presetBox;

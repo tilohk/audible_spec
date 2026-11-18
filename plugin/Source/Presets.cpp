@@ -129,7 +129,7 @@ std::vector<Preset> builtIns()
 juce::File userFolder()
 {
     return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-        .getChildFile ("Application Support/Image To Sound/Presets");
+        .getChildFile ("Application Support/audible_spec/Presets");
 }
 
 std::vector<Preset> userPresets()

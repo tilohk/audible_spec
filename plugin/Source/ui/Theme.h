@@ -20,6 +20,7 @@ inline const juce::Colour accentDark{0xff3c3489};  // violet 800
 inline const juce::Colour region{0xff5dcaa5};      // start/end markers (teal)
 inline const juce::Colour loop{0xffef9f27};        // loop region (amber)
 inline const juce::Colour error{0xfff09595};
+inline const juce::Colour caption{0xfff5c9a8}; // soft peach: group captions and the title
 } // namespace colours
 
 // Spectrogram / preview colour map: near-black -> violet -> pale violet.

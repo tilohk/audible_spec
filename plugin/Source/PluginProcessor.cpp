@@ -101,6 +101,40 @@ void ImageToSoundProcessor::applyPreset (const juce::String& presetText)
     statusIsError = false;
 }
 
+void ImageToSoundProcessor::randomizeRenderSettings (juce::Random& random)
+{
+    auto between = [&random] (double lo, double hi) { return lo + (hi - lo) * random.nextDouble(); };
+    auto logBetween = [&between] (double lo, double hi)
+    { return std::exp (between (std::log (lo), std::log (hi))); };
+    auto rounded = [] (double v, double step) { return std::round (v / step) * step; };
+
+    auto tree = getRenderSettings();
+    // Image
+    tree.setProperty ("gamma", rounded (logBetween (0.5, 2.0), 0.01), nullptr);
+    tree.setProperty ("contrast", rounded (between (0.5, 2.5), 0.01), nullptr);
+    tree.setProperty ("blur", rounded (random.nextFloat() < 0.6f ? 0.0 : between (0.5, 3.0), 0.1), nullptr);
+    tree.setProperty ("invert", random.nextBool(), nullptr);
+    tree.setProperty ("flip_horizontal", random.nextBool(), nullptr);
+    tree.setProperty ("flip_vertical", random.nextBool(), nullptr);
+    // Frequency: the highest is always at least 3 octaves above the lowest
+    const double fmin = std::round (logBetween (40.0, 400.0));
+    tree.setProperty ("fmin", fmin, nullptr);
+    tree.setProperty ("fmax", std::round (logBetween (juce::jmax (2000.0, fmin * 8.0), 16000.0)), nullptr);
+    tree.setProperty ("frequency_scale", random.nextFloat() < 0.8f ? "log" : "linear", nullptr);
+    tree.setProperty ("n_fft", random.nextBool() ? 2048 : 4096, nullptr);
+    // Dynamics (length stays: it is the user's choice)
+    tree.setProperty ("dynamic", rounded (between (30.0, 90.0), 0.5), nullptr);
+    tree.setProperty ("noise_floor", rounded (between (0.0, 0.4), 0.01), nullptr);
+    tree.setProperty ("curve", rounded (logBetween (0.7, 2.5), 0.01), nullptr);
+    // Reconstruction: only the seed (iterations, momentum and level keep the quality)
+    tree.setProperty ("random_seed", random.nextInt (10000), nullptr);
+    tree.setProperty ("preset_name", juce::String(), nullptr);
+
+    const juce::ScopedLock sl (statusLock);
+    statusMessage = "Random render settings. Press Render to hear them.";
+    statusIsError = false;
+}
+
 juce::String ImageToSoundProcessor::getPresetName()
 {
     return getRenderSettings()["preset_name"].toString();

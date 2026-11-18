@@ -146,6 +146,37 @@ RenderPanel::Row& RenderPanel::addToggles (Group& group,
     return *rows.back();
 }
 
+// A die (five pips) that randomizes the render settings.
+class RenderPanel::DiceButton final : public juce::Button
+{
+public:
+    DiceButton() : juce::Button ("Randomize render settings")
+    {
+        setTooltip ("Randomize the render settings (length and quality stay). Press Render to hear them.");
+    }
+
+    void paintButton (juce::Graphics& g, bool over, bool down) override
+    {
+        auto bounds = getLocalBounds().toFloat().reduced (1.0f);
+        g.setColour (down ? colours::accentDark
+                          : (over ? colours::panelRaised.brighter (0.08f) : colours::panelRaised));
+        g.fillRoundedRectangle (bounds, 6.0f);
+        g.setColour (over ? colours::accent : colours::border);
+        g.drawRoundedRectangle (bounds, 6.0f, 1.0f);
+
+        const auto die = bounds.withSizeKeepingCentre (17.0f, 17.0f);
+        g.setColour (colours::text);
+        g.drawRoundedRectangle (die, 3.5f, 1.4f);
+        const float r = 1.6f, inset = 4.6f;
+        const auto c = die.getCentre();
+        const float l = die.getX() + inset, t = die.getY() + inset, rr = die.getRight() - inset,
+                    b = die.getBottom() - inset;
+        for (auto p : {juce::Point<float> (l, t), juce::Point<float> (rr, t), c, juce::Point<float> (l, b),
+                       juce::Point<float> (rr, b)})
+            g.fillEllipse (p.x - r, p.y - r, 2.0f * r, 2.0f * r);
+    }
+};
+
 RenderPanel::RenderPanel()
 {
     groups.resize (4);
@@ -169,13 +200,10 @@ RenderPanel::RenderPanel()
     addChoice (frequency, "n_fft", "FFT size", {"1024", "2048", "4096", "8192"}, {1024, 2048, 4096, 8192});
 
     addSlider (time, "duration", "Length", 0.05, 20.0, 0.01, 2.0, " s");
-    addChoice (time, "hop_length", "Hop", {"16", "32", "64", "128", "256", "512"},
-               {16, 32, 64, 128, 256, 512});
     addSlider (time, "dynamic", "Range", 10.0, 120.0, 0.5, 0.0, " dB");
     addSlider (time, "noise_floor", "Noise floor", 0.0, 0.95, 0.01);
     addSlider (time, "curve", "Curve", 0.1, 4.0, 0.01, 1.0);
-    addSlider (time, "spectrum_blur_time", "Smooth time", 0.0, 20.0, 0.1);
-    addSlider (time, "spectrum_blur_freq", "Smooth freq.", 0.0, 20.0, 0.1);
+    // Hop and spectral smoothing are not shown: they keep their defaults (or a preset's values).
 
     addSlider (reconstruction, "griffin_lim_iterations", "Iterations", 1.0, 512.0, 1.0, 64.0);
     addSlider (reconstruction, "griffin_lim_momentum", "Momentum", 0.0, 0.99, 0.01);
@@ -208,6 +236,13 @@ RenderPanel::RenderPanel()
         if (onCancel)
             onCancel();
     };
+    diceButton = std::make_unique<DiceButton>();
+    diceButton->onClick = [this]
+    {
+        if (onRandomize)
+            onRandomize();
+    };
+    addAndMakeVisible (*diceButton);
     for (auto* c :
          std::initializer_list<juce::Component*>{&foldButton, &presetLabel, &presetBox, &hint, &progress,
                                                  &estimateLabel, &errorLabel, &renderButton, &cancelButton})
@@ -262,7 +297,7 @@ void RenderPanel::paint (juce::Graphics& g)
 
     // group titles
     g.setFont (juce::FontOptions (12.5f, juce::Font::bold));
-    g.setColour (colours::accentLight);
+    g.setColour (colours::caption);
     for (auto& group : groups)
         if (!group.rows.empty())
             g.drawText (group.title, group.rows.front()->getBounds().translated (0, -20).withHeight (18),
@@ -280,6 +315,8 @@ void RenderPanel::resized()
     presetLabel.setBounds (top.removeFromLeft (92));
     top.removeFromLeft (6);
     presetBox.setBounds (top.removeFromLeft (220).reduced (0, 2));
+    top.removeFromLeft (8);
+    diceButton->setBounds (top.removeFromLeft (34).reduced (0, 1));
     renderButton.setBounds (top.removeFromRight (100));
     top.removeFromRight (8);
     cancelButton.setBounds (top.removeFromRight (80));
@@ -594,7 +631,7 @@ void PlaybackPanel::paint (juce::Graphics& g)
     {
         g.setColour (colours::panelRaised.withAlpha (0.45f));
         g.fillRoundedRectangle (bounds.toFloat(), 6.0f);
-        g.setColour (colours::accentLight);
+        g.setColour (colours::caption);
         g.drawText (title, bounds.reduced (10, 3).removeFromTop (14), juce::Justification::left);
     };
     for (auto& group : groups)
