@@ -1,0 +1,7 @@
+numpy
+Pillow
+librosa
+soundfile
+scipy
+matplotlib
+pillow-heif

@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Git pre-commit gate (applies to the owner's commits as well as Claude's).
+# Enabled with: git config core.hooksPath .githooks
+
+root=$(git rev-parse --show-toplevel)
+cd "$root" || exit 1
+fail=0
+
+# Never commit generated output, venv, build dirs or huge files.
+bad=$(git diff --cached --name-only --diff-filter=AM | grep -E '^(venv/|plugin/build/|data/output/)|\.asd$' )
+if [ -n "$bad" ]; then
+  echo "pre-commit: these paths must not be committed:" >&2; echo "$bad" >&2; fail=1
+fi
+while IFS= read -r f; do
+  [ -f "$f" ] || continue
+  size=$(wc -c <"$f")
+  if [ "$size" -gt 5242880 ] && [[ "$f" != reference/fixtures/* ]]; then
+    echo "pre-commit: $f is larger than 5 MB." >&2; fail=1
+  fi
+done < <(git diff --cached --name-only --diff-filter=AM)
+
+# Formatting check on staged C++ (if clang-format is available).
+if command -v clang-format >/dev/null 2>&1; then
+  for f in $(git diff --cached --name-only --diff-filter=AM | grep -E '\.(cpp|h|hpp|mm)$'); do
+    if ! clang-format --style=file --dry-run --Werror "$f" >/dev/null 2>&1; then
+      echo "pre-commit: $f is not clang-formatted (run: clang-format -i $f)." >&2; fail=1
+    fi
+  done
+fi
+
+# Build, tests and RT-safety lint.
+if ! CLAUDE_PROJECT_DIR="$root" .claude/hooks/check.sh; then fail=1; fi
+
+[ $fail -ne 0 ] && echo "pre-commit: commit blocked. Fix the problems above." >&2
+exit $fail

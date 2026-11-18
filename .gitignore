@@ -1,0 +1,19 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Build output
+plugin/build/
+build/
+
+# Generated audio / Ableton analysis files
+data/output/
+*.asd
+
+# Claude Code local state
+.claude/state/
+.claude/settings.local.json
+
+# macOS
+.DS_Store
