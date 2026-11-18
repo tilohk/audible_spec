@@ -17,6 +17,10 @@ std::optional<RenderResult> render (const RgbaImage& decoded, const RenderParams
     r.mapped = applyFrequencyMapping (r.pixels, r.frequencies, params);
     r.magnitude = shapeMagnitude (r.mapped, params);
 
+    // Give the caller a chance to cancel before the expensive stage starts.
+    if (progress && !progress (0, params.griffinLimIterations))
+        return std::nullopt;
+
     auto raw = griffinLim (r.magnitude, params, progress);
     if (!raw)
         return std::nullopt;

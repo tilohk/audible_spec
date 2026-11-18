@@ -2,21 +2,15 @@
 
 #include "BinaryData.h"
 #include "Parameters.h"
+#include "PluginEditor.h"
 
 namespace param = its::param;
 
 ImageToSoundProcessor::ImageToSoundProcessor()
     : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMETERS", param::createLayout()),
-      renderJob (
-          [this] (std::unique_ptr<its::SampleBuffer> sample, const juce::String& error)
-          {
-              // Render thread: the only producer for the engine's hand-over queue.
-              jassert (error.isEmpty());
-              juce::ignoreUnused (error);
-              if (sample != nullptr)
-                  engine.setSample (std::move (sample));
-          })
+      renderJob ([this] (std::unique_ptr<its::SampleBuffer> sample, const juce::String& error)
+                 { onRenderFinished (std::move (sample), error); })
 {
     auto raw = [this] (const char* id)
     {
@@ -30,10 +24,13 @@ ImageToSoundProcessor::ImageToSoundProcessor()
          raw (param::loopEnd),     raw (param::loopCrossfade),  raw (param::reverse),  raw (param::lowpass),
          raw (param::highpass),    raw (param::velocityAmount), raw (param::playMode)};
 
-    // Until phase 4 adds image loading: render the built-in test image with the default settings.
-    renderJob.start (
-        juce::MemoryBlock (BinaryData::scene_portrait_heic, (size_t)BinaryData::scene_portrait_heicSize),
-        its::RenderParams{});
+    ensureRenderSettings();
+
+    // Start with the built-in test image so the instrument makes a sound right away.
+    imageData =
+        juce::MemoryBlock (BinaryData::scene_portrait_heic, (size_t)BinaryData::scene_portrait_heicSize);
+    imageName = "Built-in test image";
+    startRender();
     startTimerHz (5);
 }
 
@@ -41,6 +38,123 @@ ImageToSoundProcessor::~ImageToSoundProcessor()
 {
     stopTimer();
     renderJob.cancel();
+}
+
+// ---------------------------------------------------------------- rendering
+
+void ImageToSoundProcessor::ensureRenderSettings()
+{
+    // Add any missing render setting (new state, or a project saved by an older version).
+    auto tree = apvts.state.getOrCreateChildWithName ("RENDER", nullptr);
+    const auto defaults = its::RenderParams{}.toJson();
+    for (auto& property : defaults.getDynamicObject()->getProperties())
+        if (!tree.hasProperty (property.name))
+            tree.setProperty (property.name, property.value, nullptr);
+}
+
+juce::ValueTree ImageToSoundProcessor::getRenderSettings()
+{
+    ensureRenderSettings();
+    return apvts.state.getChildWithName ("RENDER");
+}
+
+its::RenderParams ImageToSoundProcessor::getRenderParams()
+{
+    auto tree = getRenderSettings();
+    auto* object = new juce::DynamicObject();
+    for (int i = 0; i < tree.getNumProperties(); ++i)
+        object->setProperty (tree.getPropertyName (i), tree.getProperty (tree.getPropertyName (i)));
+    return its::RenderParams::fromJson (juce::var (object));
+}
+
+bool ImageToSoundProcessor::loadImageFile (const juce::File& file, juce::String& error)
+{
+    juce::MemoryBlock data;
+    if (!file.existsAsFile() || !file.loadFileAsData (data) || data.isEmpty())
+    {
+        error = "Cannot read " + file.getFileName();
+        return false;
+    }
+    imageData = std::move (data);
+    imageName = file.getFileName();
+    startRender();
+    return true;
+}
+
+void ImageToSoundProcessor::startRender()
+{
+    const auto params = getRenderParams();
+    if (auto problem = params.validate(); problem.isNotEmpty())
+    {
+        const juce::ScopedLock sl (statusLock);
+        statusMessage = "Invalid settings: " + problem;
+        statusIsError = true;
+        return;
+    }
+    renderJob.cancel(); // the old render must not report under the new name
+    {
+        const juce::ScopedLock sl (statusLock);
+        statusMessage = "Rendering " + imageName + " ...";
+        statusIsError = false;
+        renderingImageName = imageName;
+        renderStartTime = juce::Time::getMillisecondCounterHiRes();
+    }
+    renderJob.start (imageData, params);
+}
+
+void ImageToSoundProcessor::cancelRender()
+{
+    renderJob.cancel();
+    const juce::ScopedLock sl (statusLock);
+    statusMessage = "Render cancelled";
+    statusIsError = false;
+}
+
+void ImageToSoundProcessor::onRenderFinished (std::unique_ptr<its::SampleBuffer> sample,
+                                              const juce::String& error)
+{
+    // Render thread. It is the only producer for the engine's hand-over queue.
+    juce::String name;
+    double startTime;
+    {
+        const juce::ScopedLock sl (statusLock);
+        name = renderingImageName;
+        startTime = renderStartTime;
+    }
+
+    juce::String message;
+    bool isError = error.isNotEmpty();
+    if (sample != nullptr)
+    {
+        const double seconds = (double)sample->samples.size() / sample->sampleRate;
+        const double took = (juce::Time::getMillisecondCounterHiRes() - startTime) / 1000.0;
+        message = name + ": " + juce::String (seconds, 2) + " s of audio, rendered in " +
+                  juce::String (took, 1) + " s";
+        if (!engine.setSample (std::move (sample)))
+        {
+            message = "Render finished, but the audio thread is not running to pick it up";
+            isError = true;
+        }
+    }
+    else
+    {
+        message = "Render failed: " + error;
+    }
+
+    const juce::ScopedLock sl (statusLock);
+    statusMessage = message;
+    statusIsError = isError;
+}
+
+ImageToSoundProcessor::RenderStatus ImageToSoundProcessor::getRenderStatus() const
+{
+    RenderStatus s;
+    s.rendering = renderJob.isRendering();
+    s.progress = renderJob.getProgress();
+    const juce::ScopedLock sl (statusLock);
+    s.message = statusMessage;
+    s.isError = statusIsError;
+    return s;
 }
 
 void ImageToSoundProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
@@ -99,8 +213,7 @@ void ImageToSoundProcessor::timerCallback()
 
 juce::AudioProcessorEditor* ImageToSoundProcessor::createEditor()
 {
-    // Generic slider UI until the custom editor arrives in phase 5.
-    return new juce::GenericAudioProcessorEditor (*this);
+    return new ImageToSoundEditor (*this);
 }
 
 void ImageToSoundProcessor::getStateInformation (juce::MemoryBlock& destData)
@@ -113,7 +226,10 @@ void ImageToSoundProcessor::setStateInformation (const void* data, int sizeInByt
 {
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
         if (xml->hasTagName (apvts.state.getType()))
+        {
             apvts.replaceState (juce::ValueTree::fromXml (*xml));
+            ensureRenderSettings(); // projects saved before phase 4 have no RENDER node
+        }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

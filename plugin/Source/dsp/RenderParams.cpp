@@ -77,4 +77,32 @@ RenderParams RenderParams::fromJson (const juce::var& json)
     setDouble ("spectrum_blur_freq", p.spectrumBlurFreq);
     return p;
 }
+
+juce::var RenderParams::toJson() const
+{
+    auto* o = new juce::DynamicObject();
+    o->setProperty ("width", width);
+    o->setProperty ("gamma", gamma);
+    o->setProperty ("blur", blur);
+    o->setProperty ("contrast", contrast);
+    o->setProperty ("invert", invert);
+    o->setProperty ("flip_horizontal", flipHorizontal);
+    o->setProperty ("flip_vertical", flipVertical);
+    o->setProperty ("sample_rate", sampleRate);
+    o->setProperty ("n_fft", nFft);
+    o->setProperty ("fmin", fMin);
+    o->setProperty ("fmax", fMax);
+    o->setProperty ("frequency_scale", frequencyScale == FrequencyScale::linear ? "linear" : "log");
+    o->setProperty ("hop_length", hopLength);
+    o->setProperty ("dynamic", dynamic);
+    o->setProperty ("noise_floor", noiseFloor);
+    o->setProperty ("curve", curve);
+    o->setProperty ("output_gain", outputGain);
+    o->setProperty ("griffin_lim_iterations", griffinLimIterations);
+    o->setProperty ("random_seed", randomSeed);
+    o->setProperty ("griffin_lim_momentum", griffinLimMomentum);
+    o->setProperty ("spectrum_blur_time", spectrumBlurTime);
+    o->setProperty ("spectrum_blur_freq", spectrumBlurFreq);
+    return juce::var (o);
+}
 } // namespace its

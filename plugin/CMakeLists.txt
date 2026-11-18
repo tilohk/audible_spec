@@ -51,7 +51,8 @@ set(ITS_CONSOLE_DEFINITIONS
 # Playback engine + parameters: shared by the plugin and the tests
 set(ITS_AUDIO_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/audio/SamplerEngine.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Parameters.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Parameters.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderJob.cpp)
 
 # Tests: DSP stages vs the Python fixtures, sampler engine, parameters (run with ctest)
 juce_add_console_app(DspTests PRODUCT_NAME DspTests)
@@ -61,7 +62,8 @@ target_sources(DspTests PRIVATE
     Tests/AllocationCounter.cpp
     Tests/Npy.cpp
     Tests/DspTests.cpp
-    Tests/SamplerTests.cpp)
+    Tests/SamplerTests.cpp
+    Tests/RenderJobTests.cpp)
 target_compile_definitions(DspTests PRIVATE
     ${ITS_CONSOLE_DEFINITIONS}
     ITS_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/..")
@@ -106,7 +108,7 @@ juce_add_plugin(ImageToSound
 target_sources(ImageToSound PRIVATE
     ${ITS_AUDIO_SOURCES}
     Source/PluginProcessor.cpp
-    Source/RenderJob.cpp)
+    Source/PluginEditor.cpp)
 
 # Default image shown/played until the user loads one (generated test image).
 juce_add_binary_data(ImageToSoundAssets SOURCES

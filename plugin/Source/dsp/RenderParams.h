@@ -57,5 +57,8 @@ struct RenderParams
     // Reads the snake_case keys written by reference/export_fixtures.py
     // (params.json). Unknown keys are ignored; missing keys keep defaults.
     static RenderParams fromJson (const juce::var& json);
+
+    // The same snake_case keys as fromJson (a juce::DynamicObject).
+    juce::var toJson() const;
 };
 } // namespace its
