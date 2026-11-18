@@ -275,6 +275,73 @@ public:
             expectGreaterThan (rms (out, ms (5), ms (100)), 0.2);
         }
 
+        beginTest ("the loop is relative to the played region and moves with it");
+        {
+            // Region 0.5..1.0, loop 0..0.5 of that region = 0.5..0.75 of the sample. A sample that is
+            // silent outside 0.5..0.75 keeps sounding only if the loop sits there.
+            auto marked = makeSine (441.0, 1.0);
+            const auto n = (long)marked->samples.size();
+            for (long i = 0; i < n; ++i)
+                if (i < n / 2 || i >= n * 3 / 4)
+                    marked->samples[(size_t)i] = 0.0f;
+            auto s = defaults();
+            s.start = 0.5f;
+            s.loop = true;
+            s.loopStart = 0.0f;
+            s.loopEnd = 0.5f;
+            SamplerEngine engine;
+            load (engine, std::move (marked));
+            const auto out = run (engine, s, ms (1500), {{0, on (60)}});
+            expectGreaterThan (rms (out, ms (1200), ms (1500)), 0.2); // still looping inside the region
+        }
+
+        beginTest ("start after end (possible through automation) plays safely");
+        {
+            auto s = defaults();
+            s.start = 0.8f;
+            s.end = 0.2f;
+            SamplerEngine engine;
+            load (engine, makeSine (441.0, 1.0));
+            const auto out = run (engine, s, ms (200), {{0, on (60)}});
+            bool finite = true;
+            for (auto v : out)
+                finite = finite && std::isfinite (v) && std::abs (v) <= 2.0f;
+            expect (finite, "output stays finite and bounded");
+        }
+
+        beginTest ("filter slope: 12 dB vs 24 dB per octave");
+        {
+            // Sine one octave above a 1 kHz low-pass (and one octave below a 1 kHz high-pass).
+            auto attenuationDb = [] (double freq, bool lowpassFilter, bool steep)
+            {
+                auto s = defaults();
+                s.filterSteep = steep;
+                if (lowpassFilter)
+                    s.lowpassHz = 1000.0f;
+                else
+                    s.highpassHz = 1000.0f;
+                SamplerEngine dry, wet;
+                load (dry, makeSine (freq, 1.0));
+                load (wet, makeSine (freq, 1.0));
+                const auto a = run (dry, defaults(), ms (400), {{0, on (60)}});
+                const auto b = run (wet, s, ms (400), {{0, on (60)}});
+                return 20.0 * std::log10 (rms (b, ms (100), ms (400)) / rms (a, ms (100), ms (400)));
+            };
+            const double lp12 = attenuationDb (2000.0, true, false),
+                         lp24 = attenuationDb (2000.0, true, true);
+            const double hp12 = attenuationDb (500.0, false, false),
+                         hp24 = attenuationDb (500.0, false, true);
+            logMessage ("  one octave out: LP " + juce::String (lp12, 1) + " / " + juce::String (lp24, 1) +
+                        " dB, HP " + juce::String (hp12, 1) + " / " + juce::String (hp24, 1) + " dB");
+            // Butterworth at 2x the cutoff: 2nd order -12.3 dB, 4th order -24.1 dB (TPT warping: +-1.5 dB)
+            expectWithinAbsoluteError (lp12, -12.3, 1.5);
+            expectWithinAbsoluteError (lp24, -24.1, 1.5);
+            expectWithinAbsoluteError (hp12, -12.3, 1.5);
+            expectWithinAbsoluteError (hp24, -24.1, 1.5);
+            // At the cutoff both slopes are -3 dB (Butterworth).
+            expectWithinAbsoluteError (attenuationDb (1000.0, true, true), -3.0, 0.5);
+        }
+
         beginTest ("mono mode: a new note replaces the old one");
         {
             auto s = defaults();
@@ -357,6 +424,8 @@ public:
             s.loopEnd = 0.7f;
             s.gainDb = -6.0f + (float)(b % 10);
             s.lowpassHz = 2000.0f + 200.0f * (float)b;
+            s.highpassHz = b % 7 == 0 ? 20.0f : 100.0f;
+            s.filterSteep = b % 4 >= 2;
             s.start = (float)(b % 4) * 0.1f;
         }
         auto replacement = makeSine (660.0, 0.3);

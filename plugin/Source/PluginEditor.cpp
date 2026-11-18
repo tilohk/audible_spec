@@ -12,18 +12,15 @@ ImageToSoundEditor::ImageToSoundEditor (ImageToSoundProcessor& p)
 {
     title.setFont (juce::FontOptions (17.0f, juce::Font::bold));
     title.setColour (juce::Label::textColourId, colours::text);
+    title.setJustificationType (juce::Justification::centredRight);
     imageLabel.setFont (juce::FontOptions (13.0f));
     imageLabel.setColour (juce::Label::textColourId, colours::textSecondary);
-    for (auto* c :
-         std::initializer_list<juce::Component*>{&title, &imageLabel, &loadButton, &presetLabel, &presetBox,
-                                                 &preview, &spectrogram, &renderPanel, &playbackPanel})
+    for (auto* c : std::initializer_list<juce::Component*>{&title, &imageLabel, &loadButton, &renderPanel,
+                                                           &preview, &spectrogram, &playbackPanel})
         addAndMakeVisible (c);
 
-    presetLabel.setFont (juce::FontOptions (13.0f));
-    presetLabel.setColour (juce::Label::textColourId, colours::textSecondary);
-    presetLabel.setJustificationType (juce::Justification::centredRight);
-    presetBox.setTextWhenNothingSelected ("Choose a preset");
-    presetBox.onChange = [this] { presetChosen(); };
+    renderPanel.getPresetBox().onChange = [this] { presetChosen(); };
+    renderPanel.onExpandedChanged = [this] (bool open) { setRenderPanelOpen (open); };
     rebuildPresetMenu();
 
     loadButton.onClick = [this] { chooseImage(); };
@@ -37,8 +34,10 @@ ImageToSoundEditor::ImageToSoundEditor (ImageToSoundProcessor& p)
 
     bindRenderSettings();
     setResizable (true, true);
-    setResizeLimits (900, 680, 1800, 1300);
-    setSize (980, 720);
+    const bool open = owner.isRenderPanelOpen();
+    renderPanel.setExpanded (open);
+    updateSizeLimits();
+    setSize (980, fixedHeight() + defaultPreviewHeight);
     timerCallback();
     startTimerHz (30);
 }
@@ -69,29 +68,49 @@ void ImageToSoundEditor::paint (juce::Graphics& g)
     g.fillAll (colours::background);
 }
 
+// Layout, top to bottom: header, render section (bar + foldable settings), previews, playback.
+// Everything but the previews has a fixed height; the previews take what is left.
+int ImageToSoundEditor::fixedHeight() const
+{
+    return 2 * margin + headerHeight + gap + renderPanel.getPreferredHeight() + gap + gap + playbackHeight;
+}
+
+void ImageToSoundEditor::updateSizeLimits()
+{
+    setResizeLimits (900, fixedHeight() + minPreviewHeight, 1800, fixedHeight() + 900);
+}
+
+void ImageToSoundEditor::setRenderPanelOpen (bool open)
+{
+    owner.setRenderPanelOpen (open);
+    renderPanel.setExpanded (open);
+    const int newHeight = getHeight() + (open ? 1 : -1) * its::ui::RenderPanel::bodyHeight;
+    updateSizeLimits();
+    setSize (getWidth(), juce::jmax (newHeight, fixedHeight() + minPreviewHeight));
+}
+
 void ImageToSoundEditor::resized()
 {
-    auto area = getLocalBounds().reduced (14);
+    auto area = getLocalBounds().reduced (margin);
 
-    auto header = area.removeFromTop (30);
-    title.setBounds (header.removeFromLeft (150));
-    loadButton.setBounds (header.removeFromRight (120).reduced (0, 2));
-    header.removeFromRight (16);
-    presetBox.setBounds (header.removeFromRight (210).reduced (0, 2));
-    presetLabel.setBounds (header.removeFromRight (56));
+    auto header = area.removeFromTop (headerHeight);
+    loadButton.setBounds (header.removeFromLeft (120).reduced (0, 2));
+    header.removeFromLeft (10);
+    title.setBounds (header.removeFromRight (150));
     imageLabel.setBounds (header);
-    area.removeFromTop (10);
+    area.removeFromTop (gap);
 
-    const int previewHeight = juce::jmax (180, (area.getHeight() - 30) * 30 / 100);
-    auto previews = area.removeFromTop (previewHeight);
-    preview.setBounds (previews.removeFromLeft (previewHeight * 4 / 3));
+    renderPanel.setBounds (area.removeFromTop (renderPanel.getPreferredHeight()));
+    area.removeFromTop (gap);
+
+    playbackPanel.setBounds (area.removeFromBottom (playbackHeight));
+    area.removeFromBottom (gap);
+
+    auto previews = area;
+    preview.setBounds (
+        previews.removeFromLeft (juce::jmin (previews.getHeight() * 4 / 3, previews.getWidth() / 3)));
     previews.removeFromLeft (12);
     spectrogram.setBounds (previews);
-    area.removeFromTop (12);
-
-    playbackPanel.setBounds (area.removeFromBottom (140));
-    area.removeFromBottom (12);
-    renderPanel.setBounds (area);
 }
 
 void ImageToSoundEditor::timerCallback()
@@ -216,10 +235,12 @@ constexpr int saveItemId = 10000;
 
 void ImageToSoundEditor::rebuildPresetMenu()
 {
+    auto& presetBox = renderPanel.getPresetBox();
     presetBox.clear (juce::dontSendNotification);
     presetTexts.clear();
 
-    auto addSection = [this] (const juce::String& heading, const std::vector<its::presets::Preset>& list)
+    auto addSection =
+        [this, &presetBox] (const juce::String& heading, const std::vector<its::presets::Preset>& list)
     {
         if (list.empty())
             return;
@@ -231,9 +252,9 @@ void ImageToSoundEditor::rebuildPresetMenu()
         }
     };
     addSection ("Built-in", its::presets::builtIns());
-    addSection ("Your presets", its::presets::userPresets());
+    addSection ("Your render presets", its::presets::userPresets());
     presetBox.addSeparator();
-    presetBox.addItem ("Save current settings as preset...", saveItemId);
+    presetBox.addItem ("Save current render settings as preset...", saveItemId);
 
     // Show the last applied preset, if it is still in the list.
     for (int i = 0; i < presetBox.getNumItems(); ++i)
@@ -243,6 +264,7 @@ void ImageToSoundEditor::rebuildPresetMenu()
 
 void ImageToSoundEditor::presetChosen()
 {
+    auto& presetBox = renderPanel.getPresetBox();
     const int id = presetBox.getSelectedId();
     if (id == saveItemId)
     {
@@ -257,7 +279,7 @@ void ImageToSoundEditor::presetChosen()
 void ImageToSoundEditor::savePresetDialog()
 {
     auto* window = new juce::AlertWindow (
-        "Save preset", "Name for the current render settings:", juce::MessageBoxIconType::NoIcon);
+        "Save render preset", "Name for the current render settings:", juce::MessageBoxIconType::NoIcon);
     window->addTextEditor ("name", owner.getPresetName().isNotEmpty() ? owner.getPresetName() : "My preset");
     window->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
     window->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
@@ -275,13 +297,14 @@ void ImageToSoundEditor::savePresetDialog()
                 if (!its::presets::saveUserPreset (safeThis->owner.getRenderSettings(), name, error))
                 {
                     juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
-                                                            "Save preset", error);
+                                                            "Save render preset", error);
                     return;
                 }
                 safeThis->rebuildPresetMenu();
-                for (int i = 0; i < safeThis->presetBox.getNumItems(); ++i)
-                    if (safeThis->presetBox.getItemText (i) == name)
-                        safeThis->presetBox.setSelectedItemIndex (i, juce::dontSendNotification);
+                for (int i = 0; i < safeThis->renderPanel.getPresetBox().getNumItems(); ++i)
+                    if (safeThis->renderPanel.getPresetBox().getItemText (i) == name)
+                        safeThis->renderPanel.getPresetBox().setSelectedItemIndex (
+                            i, juce::dontSendNotification);
             }),
         true);
 }

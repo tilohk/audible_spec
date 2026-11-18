@@ -2,6 +2,7 @@
 
 #include "dsp/ImageProcessor.h"
 #include "ui/DisplayData.h"
+#include "ui/Region.h"
 
 #include <juce_core/juce_core.h>
 
@@ -16,6 +17,25 @@ public:
 
     void runTest() override
     {
+        beginTest ("sample start never passes the end, and the other way round");
+        {
+            expectWithinAbsoluteError (region::clampStart (0.9f, 0.5f), 0.49f, 1e-6f);
+            expectWithinAbsoluteError (region::clampStart (0.3f, 0.5f), 0.3f, 1e-6f);
+            expectWithinAbsoluteError (region::clampStart (-0.2f, 0.5f), 0.0f, 1e-6f);
+            expectWithinAbsoluteError (region::clampEnd (0.5f, 0.1f), 0.51f, 1e-6f);
+            expectWithinAbsoluteError (region::clampEnd (0.5f, 1.3f), 1.0f, 1e-6f);
+            expectWithinAbsoluteError (region::clampEnd (0.995f, 0.2f), 1.0f, 1e-6f); // gap capped at 1
+            expectWithinAbsoluteError (region::clampStart (0.5f, 0.005f), 0.0f, 1e-6f);
+        }
+
+        beginTest ("moving the region keeps its length and stops at the edges");
+        {
+            expectWithinAbsoluteError (region::limitMove (0.2f, 0.5f, 0.1f), 0.1f, 1e-6f);
+            expectWithinAbsoluteError (region::limitMove (0.2f, 0.5f, 0.8f), 0.5f, 1e-6f);   // end hits 1
+            expectWithinAbsoluteError (region::limitMove (0.2f, 0.5f, -0.6f), -0.2f, 1e-6f); // start hits 0
+            expectWithinAbsoluteError (region::limitMove (0.0f, 1.0f, 0.3f), 0.0f, 1e-6f);   // whole sample
+        }
+
         beginTest ("sound length in seconds maps to frames");
         {
             RenderParams p; // 44.1 kHz, hop 32

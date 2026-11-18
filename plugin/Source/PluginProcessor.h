@@ -65,6 +65,10 @@ public:
     void applyPreset (const juce::String& presetText);
     juce::String getPresetName(); // stored with the render settings (saved in the project)
 
+    // Whether the editor shows the render settings (UI state, saved in the project).
+    bool isRenderPanelOpen() const { return apvts.state.getProperty ("render_panel_open", false); }
+    void setRenderPanelOpen (bool open) { apvts.state.setProperty ("render_panel_open", open, nullptr); }
+
     // ---- Data for the UI (message thread) ----
     struct RenderedData
     {
@@ -95,9 +99,9 @@ private:
     // Raw parameter values, cached once and read lock-free on the audio thread.
     struct ParameterPointers
     {
-        std::atomic<float>*gain, *attack, *decay, *sustain, *release, *rootNote, *keyTrack, *fineTune,
+        std::atomic<float>*gain, *attack, *decay, *sustain, *release, *transpose, *keyTrack, *fineTune,
             *sampleStart, *sampleEnd, *loopOn, *loopStart, *loopEnd, *loopCrossfade, *reverse, *lowpass,
-            *highpass, *velocityAmount, *playMode;
+            *highpass, *filterSlope, *playMode;
     } p{};
 
     its::SamplerEngine engine;

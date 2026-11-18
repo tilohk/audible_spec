@@ -29,23 +29,29 @@ The Python script stays as the **reference implementation**: the C++ port is che
 Gamma, contrast, blur, invert and flip are cheap, so the **processed-image preview updates live** while you turn them. Only the audio waits for Render. The UI also shows an estimated render time and duration.
 
 **Real-time parameters** (automatable in Ableton, no re-render):
-Output gain · ADSR · Root note / key-tracking on/off · Fine tune · Sample start / end · Loop on/off + loop start/end + crossfade · Reverse · Low-pass / high-pass filter · Velocity → volume amount · Polyphony (mono/poly).
+Output gain · ADSR · Transpose (±24 semitones) / key-tracking on/off · Fine tune · Sample start / end · Loop on/off + loop start/end (relative to the sample region) + crossfade · Reverse · Low-pass / high-pass filter + slope (12/24 dB/oct) · Polyphony (mono/poly). Velocity always scales the level (no parameter).
 
-## Rough UI layout (first mockup)
+## UI layout (as built, revised after phase 6)
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│ [Image drop zone / processed preview] │ [Spectrogram + playhead] │
-│                                        │  start/end/loop handles  │
-├──────────────── RENDER ────────────────┴──────────────────────────┤
-│ Image: Gamma Contrast Blur [Inv][FlipH][FlipV]                   │
-│ Freq:  FMin FMax [log|lin] FFT   Time: Duration Hop               │
-│ Dyn:   Range Floor Curve  Smooth T/F   GL: Iter Mom Seed          │
-│ Preset ▾     ~6.0 s · est. 1.2 s     [ RENDER ] ▓▓▓▓░░ [Cancel]   │
-├──────────────── PLAYBACK (real-time) ─────────────────────────────┤
-│ A D S R   Root Tune [Key trk]  [Loop][Rev] XFade   LP HP  Gain    │
-│                                            [⇩ Drag WAV to track]  │
-└──────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────┐
+│ [Load image...]  <image name>                          Image to sound  │
+├──────────────── RENDER (bar always visible) ───────────────────────────┤
+│ [View/Hide render settings]  Render preset [▾]  2.0 s, ~4 s [Cancel][Render] │
+│ ▓▓▓▓▓▓▓░░░░░░░░ progress (full width; shows the error if a render fails) │
+│ (foldable) Image | Frequency | Time and dynamics | Reconstruction       │
+├────────────────────────────────────────────────────────────────────────┤
+│ [Image drop zone / processed preview] │ [Spectrogram + playhead]       │
+│                                        │ start/end + loop handles;      │
+│                                        │ drag inside start..end = move  │
+├──────────────── PLAYBACK (real-time) ──────────────────────────────────┤
+│ Envelope: Attack Decay Sustain Release │ Pitch: Transp. Tune [key]│ Output │
+│ Sample: Start End X-fade [loop][rev]   │ Filter: LP HP [12/24]   │ Gain   │
+│                                        │                         │ [Poly] │
+│                                        │                         │ [Drag] │
+└────────────────────────────────────────────────────────────────────────┘
 ```
+The render settings start folded; unfolding grows the window by their height, and the state is saved in the project.
+Sample start never passes the end (markers and knobs); dragging inside the region moves it without changing its length. The loop markers are fractions of the region, so the loop always stays inside it and moves with it.
 
 ---
 
@@ -90,7 +96,7 @@ Main points:
 3. **Minimal instrument.** PluginProcessor + SamplerVoice play a hard-coded rendered buffer from MIDI, using the real-time params through the APVTS generic editor (no custom UI yet).
 4. **Render job.** Image drop → background render → atomic swap, with progress and cancel.
 5. **Custom UI.** Image preview (live image params), spectrogram view with playhead and loop handles, panels following the layout above, drag-out WAV (`performExternalDragDropOfFiles`).
-6. **State & presets.** Save/load the plugin state; convert `presets/*.txt` (Clean, Dark/Texture, Bright/Percussive) into built-in presets plus user preset saving.
+6. **State & presets.** Save/load the plugin state; convert `presets/*.txt` (Clean, Dark/Texture, Bright/Percussive) into built-in render presets plus saving your own render presets.
 7. **Hardening & packaging.** Run `pluginval` and `auval -a`, test in Ableton (multiple instances, project reload, sample-rate change, freeze/bounce). Code signing and notarization come later if you want to share the plugin.
 
 Later options (from the README's roadmap): stereo/panning from image columns, Mel/Bark scales, batch rendering, slicing into multiple bands.

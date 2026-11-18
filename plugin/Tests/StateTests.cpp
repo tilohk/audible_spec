@@ -189,6 +189,50 @@ public:
             expect (p->getRenderStatus().message.isNotEmpty());
         }
 
+        beginTest ("the folded/unfolded render panel is remembered in the project");
+        {
+            auto p = makeProcessor();
+            p->cancelRender();
+            expect (!p->isRenderPanelOpen(), "folded by default");
+            p->setRenderPanelOpen (true);
+            juce::MemoryBlock opened;
+            p->getStateInformation (opened);
+            auto q = makeProcessor();
+            q->setStateInformation (opened.getData(), (int)opened.getSize());
+            q->cancelRender();
+            expect (q->isRenderPanelOpen(), "still open after reopening");
+        }
+
+        beginTest ("filter slope survives save/reopen; an old project with velocityAmount loads");
+        {
+            auto p = makeProcessor();
+            p->cancelRender();
+            auto* slope = p->apvts.getParameter (param::filterSlope);
+            expect (slope != nullptr);
+            slope->setValueNotifyingHost (1.0f); // 24 dB
+            juce::MemoryBlock slopeState;
+            p->getStateInformation (slopeState);
+            auto q = makeProcessor();
+            q->setStateInformation (slopeState.getData(), (int)slopeState.getSize());
+            q->cancelRender();
+            expectEquals (q->apvts.getParameter (param::filterSlope)->getCurrentValueAsText(),
+                          juce::String ("24 dB"));
+            expect (q->apvts.getParameter ("velocityAmount") == nullptr, "velocity parameter removed");
+
+            // A phase 3-5 style XML state that still has the removed parameter.
+            auto xml = p->apvts.copyState().createXml();
+            auto* old = xml->createNewChildElement ("PARAM");
+            old->setAttribute ("id", "velocityAmount");
+            old->setAttribute ("value", 0.3);
+            juce::MemoryBlock legacy;
+            juce::AudioProcessor::copyXmlToBinary (*xml, legacy);
+            auto r = makeProcessor();
+            r->setStateInformation (legacy.getData(), (int)legacy.getSize());
+            r->cancelRender();
+            expectEquals (r->apvts.getParameter (param::filterSlope)->getCurrentValueAsText(),
+                          juce::String ("24 dB"));
+        }
+
         beginTest ("saving while a render runs is safe and keeps the previous sound");
         {
             auto p = makeProcessor();
@@ -285,6 +329,7 @@ public:
             p->cancelRender();
             p->applyPreset (builtIns.front().text);
             expectEquals (p->getPresetName(), builtIns.front().name);
+            expect (p->getRenderStatus().message.startsWith ("Render preset"), p->getRenderStatus().message);
             expect (p->getRenderStatus().message.contains ("Press Render"));
             expectWithinAbsoluteError (p->getRenderParams().gamma, 1.5, 1e-9); // Bright / Percussive
         }

@@ -22,8 +22,10 @@ inline float readInterpolated (const float* data, int length, double position) n
 
 SamplerEngine::SamplerEngine()
 {
-    lowpass.setType (juce::dsp::StateVariableTPTFilterType::lowpass);
-    highpass.setType (juce::dsp::StateVariableTPTFilterType::highpass);
+    for (auto* f : {&lowpass, &lowpass2})
+        f->setType (juce::dsp::StateVariableTPTFilterType::lowpass);
+    for (auto* f : {&highpass, &highpass2})
+        f->setType (juce::dsp::StateVariableTPTFilterType::highpass);
 }
 
 SamplerEngine::~SamplerEngine()
@@ -51,8 +53,8 @@ void SamplerEngine::prepare (double sampleRate, int maxBlockSize)
     }
 
     const juce::dsp::ProcessSpec spec{sampleRate, (juce::uint32)maxBlock, 1};
-    lowpass.prepare (spec);
-    highpass.prepare (spec);
+    for (auto* f : {&lowpass, &highpass, &lowpass2, &highpass2})
+        f->prepare (spec);
 
     gain.reset (sampleRate, 0.02);
     gain.setCurrentAndTargetValue (1.0f);
@@ -148,13 +150,36 @@ void SamplerEngine::startBlock (const PlaybackSettings& settings)
     const bool wantLowpass = settings.lowpassHz < 19990.0f;
     const bool wantHighpass = settings.highpassHz > 20.5f;
     if (wantLowpass && !lowpassActive)
+    {
         lowpass.reset();
+        lowpass2.reset();
+    }
     if (wantHighpass && !highpassActive)
+    {
         highpass.reset();
+        highpass2.reset();
+    }
     lowpassActive = wantLowpass;
     highpassActive = wantHighpass;
-    lowpass.setCutoffFrequency (juce::jlimit (20.0f, maxCutoff, settings.lowpassHz));
-    highpass.setCutoffFrequency (juce::jlimit (20.0f, maxCutoff, settings.highpassHz));
+
+    // 12 dB/oct: one stage, Q 1/sqrt(2). 24 dB/oct: 4th-order Butterworth, Q 0.541 and 1.307.
+    if (settings.filterSteep != steep)
+    {
+        steep = settings.filterSteep;
+        lowpass2.reset();
+        highpass2.reset();
+        const float q1 = steep ? 0.5411961f : juce::MathConstants<float>::sqrt2 * 0.5f;
+        lowpass.setResonance (q1);
+        highpass.setResonance (q1);
+        lowpass2.setResonance (1.3065630f);
+        highpass2.setResonance (1.3065630f);
+    }
+    const float lowCut = juce::jlimit (20.0f, maxCutoff, settings.lowpassHz);
+    const float highCut = juce::jlimit (20.0f, maxCutoff, settings.highpassHz);
+    lowpass.setCutoffFrequency (lowCut);
+    lowpass2.setCutoffFrequency (lowCut);
+    highpass.setCutoffFrequency (highCut);
+    highpass2.setCutoffFrequency (highCut);
     gain.setTargetValue (juce::Decibels::decibelsToGain (settings.gainDb, -60.0f));
 }
 
@@ -188,9 +213,17 @@ void SamplerEngine::renderVoices (juce::AudioBuffer<float>& output, int startSam
         {
             float y = mix[(size_t)i];
             if (lowpassActive)
+            {
                 y = lowpass.processSample (0, y);
+                if (steep)
+                    y = lowpass2.processSample (0, y);
+            }
             if (highpassActive)
+            {
                 y = highpass.processSample (0, y);
+                if (steep)
+                    y = highpass2.processSample (0, y);
+            }
             y *= gain.getNextValue();
             for (int ch = 0; ch < output.getNumChannels(); ++ch)
                 output.setSample (ch, startSample + i, y);
@@ -207,8 +240,10 @@ SamplerEngine::Region SamplerEngine::regionFor (const SampleBuffer& sample,
     Region r{};
     r.start = juce::jlimit (0.0, length - 2.0, (double)settings.start * length);
     r.end = juce::jlimit (r.start + 1.0, length, (double)settings.end * length);
-    r.loopStart = juce::jlimit (r.start, r.end, (double)settings.loopStart * length);
-    r.loopEnd = juce::jlimit (r.start, r.end, (double)settings.loopEnd * length);
+    // The loop lives inside the played region and moves/scales with it.
+    const double regionLength = r.end - r.start;
+    r.loopStart = r.start + juce::jlimit (0.0, 1.0, (double)settings.loopStart) * regionLength;
+    r.loopEnd = r.start + juce::jlimit (0.0, 1.0, (double)settings.loopEnd) * regionLength;
     r.loop = settings.loop && (r.loopEnd - r.loopStart) >= 4.0;
 
     // The crossfade reads before loopStart (forward) or after loopEnd (reverse).

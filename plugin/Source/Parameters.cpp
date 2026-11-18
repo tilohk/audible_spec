@@ -40,7 +40,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     layout.add (std::make_unique<Float> (juce::ParameterID{gain, 1}, "Output Gain",
                                          juce::NormalisableRange<float> (-60.0f, 12.0f, 0.1f), 0.0f,
                                          Attributes().withLabel ("dB")));
-    layout.add (percent (velocityAmount, "Velocity Amount", 1.0f));
     layout.add (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID{playMode, 1}, "Play Mode",
                                                               juce::StringArray{"Mono", "Poly"}, 1));
 
@@ -55,16 +54,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
 
     // Pitch
     layout.add (std::make_unique<juce::AudioParameterInt> (
-        juce::ParameterID{rootNote, 1}, "Root Note", 0, 127, 60,
-        juce::AudioParameterIntAttributes().withStringFromValueFunction (
-            [] (int v, int) { return juce::MidiMessage::getMidiNoteName (v, true, true, 3); })));
+        juce::ParameterID{transpose, 1}, "Transpose", -24, 24, 0,
+        juce::AudioParameterIntAttributes().withLabel ("st").withStringFromValueFunction (
+            [] (int v, int) { return v > 0 ? "+" + juce::String (v) : juce::String (v); })));
     layout.add (
         std::make_unique<juce::AudioParameterBool> (juce::ParameterID{keyTrack, 1}, "Key Tracking", true));
     layout.add (std::make_unique<Float> (juce::ParameterID{fineTune, 1}, "Fine Tune",
                                          juce::NormalisableRange<float> (-100.0f, 100.0f, 0.1f), 0.0f,
                                          Attributes().withLabel ("ct")));
 
-    // Sample region and loop (fractions of the rendered sample)
+    // Sample region (fractions of the rendered sample); loop start/end are fractions of that region
     layout.add (percent (sampleStart, "Sample Start", 0.0f));
     layout.add (percent (sampleEnd, "Sample End", 1.0f));
     layout.add (std::make_unique<juce::AudioParameterBool> (juce::ParameterID{loopOn, 1}, "Loop", false));
@@ -79,6 +78,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
                                          20000.0f, Attributes().withLabel ("Hz")));
     layout.add (std::make_unique<Float> (juce::ParameterID{highpass, 1}, "High-pass", frequencyRange(), 20.0f,
                                          Attributes().withLabel ("Hz")));
+    layout.add (std::make_unique<juce::AudioParameterChoice> (
+        juce::ParameterID{filterSlope, 1}, "Filter Slope", juce::StringArray{"12 dB", "24 dB"}, 0));
     return layout;
 }
 } // namespace its::param

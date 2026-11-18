@@ -56,6 +56,7 @@ int main (int argc, char* argv[])
     for (int i = 0; i < 25; ++i)
         processor.processBlock (buffer, none); // playhead moves a bit
 
+    processor.setRenderPanelOpen (true); // folded by default; snapshot both states
     std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
     auto* itsEditor = dynamic_cast<ImageToSoundEditor*> (editor.get());
     if (itsEditor == nullptr)
@@ -63,14 +64,39 @@ int main (int argc, char* argv[])
     for (int i = 0; i < 5; ++i)
         itsEditor->refreshNow(); // spectrogram, status, debounced preview
 
-    const auto snapshot = editor->createComponentSnapshot (editor->getLocalBounds(), true, 1.0f);
-    juce::File out = juce::File::getCurrentWorkingDirectory().getChildFile (argv[1]);
-    out.deleteFile();
-    juce::FileOutputStream stream (out);
-    juce::PNGImageFormat png;
-    if (!stream.openedOk() || !png.writeImageToStream (snapshot, stream))
+    auto write = [&] (const juce::String& path)
+    {
+        const auto snapshot = editor->createComponentSnapshot (editor->getLocalBounds(), true, 1.0f);
+        juce::File out = juce::File::getCurrentWorkingDirectory().getChildFile (path);
+        out.deleteFile();
+        juce::FileOutputStream stream (out);
+        juce::PNGImageFormat png;
+        if (!stream.openedOk() || !png.writeImageToStream (snapshot, stream))
+            return false;
+        std::printf ("UiSnapshot: %dx%d editor, status \"%s\" -> %s\n", editor->getWidth(),
+                     editor->getHeight(), processor.getRenderStatus().message.toRawUTF8(),
+                     out.getFullPathName().toRawUTF8());
+        return true;
+    };
+
+    const juce::String expandedPath (argv[1]);
+    if (!write (expandedPath))
         return 1;
-    std::printf ("UiSnapshot: %dx%d editor, status \"%s\" -> %s\n", editor->getWidth(), editor->getHeight(),
-                 processor.getRenderStatus().message.toRawUTF8(), out.getFullPathName().toRawUTF8());
+
+    // Folded: the window must shrink by the height of the render settings.
+    const int expandedHeight = editor->getHeight();
+    itsEditor->setRenderPanelOpen (false);
+    itsEditor->refreshNow();
+    if (editor->getHeight() != expandedHeight - its::ui::RenderPanel::bodyHeight)
+    {
+        std::fprintf (stderr, "UiSnapshot: folding changed the height from %d to %d\n", expandedHeight,
+                      editor->getHeight());
+        return 1;
+    }
+    if (!write (expandedPath.upToLastOccurrenceOf (".", false, false) + "_folded.png"))
+        return 1;
+    itsEditor->setRenderPanelOpen (true);
+    if (editor->getHeight() != expandedHeight)
+        return 1;
     return 0;
 }
