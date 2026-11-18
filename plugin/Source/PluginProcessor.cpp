@@ -3,14 +3,15 @@
 #include "BinaryData.h"
 #include "Parameters.h"
 #include "PluginEditor.h"
+#include "image/ImageDecoder.h"
+#include "ui/DisplayData.h"
 
 namespace param = its::param;
 
 ImageToSoundProcessor::ImageToSoundProcessor()
     : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMETERS", param::createLayout()),
-      renderJob ([this] (std::unique_ptr<its::SampleBuffer> sample, const juce::String& error)
-                 { onRenderFinished (std::move (sample), error); })
+      renderJob ([this] (its::RenderJob::Output output) { onRenderFinished (std::move (output)); })
 {
     auto raw = [this] (const char* id)
     {
@@ -27,9 +28,9 @@ ImageToSoundProcessor::ImageToSoundProcessor()
     ensureRenderSettings();
 
     // Start with the built-in test image so the instrument makes a sound right away.
-    imageData =
-        juce::MemoryBlock (BinaryData::scene_portrait_heic, (size_t)BinaryData::scene_portrait_heicSize);
-    imageName = "Built-in test image";
+    setImage (
+        juce::MemoryBlock (BinaryData::scene_portrait_heic, (size_t)BinaryData::scene_portrait_heicSize),
+        "Built-in test image");
     startRender();
     startTimerHz (5);
 }
@@ -46,10 +47,20 @@ void ImageToSoundProcessor::ensureRenderSettings()
 {
     // Add any missing render setting (new state, or a project saved by an older version).
     auto tree = apvts.state.getOrCreateChildWithName ("RENDER", nullptr);
-    const auto defaults = its::RenderParams{}.toJson();
+    const its::RenderParams defaultParams;
+    const auto defaults = defaultParams.toJson();
     for (auto& property : defaults.getDynamicObject()->getProperties())
         if (!tree.hasProperty (property.name))
             tree.setProperty (property.name, property.value, nullptr);
+
+    // The UI edits the sound length in seconds; "width" (frames) is derived from it.
+    if (!tree.hasProperty ("duration"))
+    {
+        const auto width = (int)tree.getProperty ("width", defaultParams.width);
+        const auto hop = (int)tree.getProperty ("hop_length", defaultParams.hopLength);
+        const auto rate = (int)tree.getProperty ("sample_rate", defaultParams.sampleRate);
+        tree.setProperty ("duration", (double)width * hop / rate, nullptr);
+    }
 }
 
 juce::ValueTree ImageToSoundProcessor::getRenderSettings()
@@ -64,7 +75,21 @@ its::RenderParams ImageToSoundProcessor::getRenderParams()
     auto* object = new juce::DynamicObject();
     for (int i = 0; i < tree.getNumProperties(); ++i)
         object->setProperty (tree.getPropertyName (i), tree.getProperty (tree.getPropertyName (i)));
-    return its::RenderParams::fromJson (juce::var (object));
+    auto params = its::RenderParams::fromJson (juce::var (object));
+    params.width = its::display::widthForDuration ((double)tree.getProperty ("duration"), params);
+    return params;
+}
+
+void ImageToSoundProcessor::setImage (juce::MemoryBlock data, const juce::String& name)
+{
+    juce::String error;
+    if (auto decoded = its::decodeImageData (data.getData(), data.getSize(), error))
+        previewBase = its::display::previewBase (*decoded, 480, 360);
+    else
+        previewBase = {};
+    imageData = std::move (data);
+    imageName = name;
+    ++imageGeneration;
 }
 
 bool ImageToSoundProcessor::loadImageFile (const juce::File& file, juce::String& error)
@@ -72,13 +97,24 @@ bool ImageToSoundProcessor::loadImageFile (const juce::File& file, juce::String&
     juce::MemoryBlock data;
     if (!file.existsAsFile() || !file.loadFileAsData (data) || data.isEmpty())
     {
-        error = "Cannot read " + file.getFileName();
+        error = "Couldn't read " + file.getFileName() + ".";
         return false;
     }
-    imageData = std::move (data);
-    imageName = file.getFileName();
+    juce::String decodeError;
+    if (!its::decodeImageData (data.getData(), data.getSize(), decodeError))
+    {
+        error = file.getFileName() + " isn't an image this plugin can read.";
+        return false;
+    }
+    setImage (std::move (data), file.getFileName());
     startRender();
     return true;
+}
+
+ImageToSoundProcessor::RenderedData ImageToSoundProcessor::getRenderedData() const
+{
+    const juce::ScopedLock sl (statusLock);
+    return rendered;
 }
 
 void ImageToSoundProcessor::startRender()
@@ -110,9 +146,10 @@ void ImageToSoundProcessor::cancelRender()
     statusIsError = false;
 }
 
-void ImageToSoundProcessor::onRenderFinished (std::unique_ptr<its::SampleBuffer> sample,
-                                              const juce::String& error)
+void ImageToSoundProcessor::onRenderFinished (its::RenderJob::Output output)
 {
+    auto& sample = output.sample;
+    const auto& error = output.error;
     // Render thread. It is the only producer for the engine's hand-over queue.
     juce::String name;
     double startTime;
@@ -124,8 +161,10 @@ void ImageToSoundProcessor::onRenderFinished (std::unique_ptr<its::SampleBuffer>
 
     juce::String message;
     bool isError = error.isNotEmpty();
+    std::shared_ptr<const its::SampleBuffer> audioCopy;
     if (sample != nullptr)
     {
+        audioCopy = std::make_shared<const its::SampleBuffer> (*sample); // for the UI (drag-out)
         const double seconds = (double)sample->samples.size() / sample->sampleRate;
         const double took = (juce::Time::getMillisecondCounterHiRes() - startTime) / 1000.0;
         message = name + ": " + juce::String (seconds, 2) + " s of audio, rendered in " +
@@ -144,6 +183,12 @@ void ImageToSoundProcessor::onRenderFinished (std::unique_ptr<its::SampleBuffer>
     const juce::ScopedLock sl (statusLock);
     statusMessage = message;
     statusIsError = isError;
+    if (audioCopy != nullptr)
+    {
+        rendered.audio = std::move (audioCopy);
+        rendered.spectrogram = std::move (output.spectrogram);
+        ++rendered.generation;
+    }
 }
 
 ImageToSoundProcessor::RenderStatus ImageToSoundProcessor::getRenderStatus() const

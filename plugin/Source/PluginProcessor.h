@@ -59,7 +59,19 @@ public:
     RenderStatus getRenderStatus() const;
     juce::String getImageName() const { return imageName; }
     juce::ValueTree getRenderSettings(); // "RENDER" child of the state, snake_case properties
-    its::RenderParams getRenderParams();
+    its::RenderParams getRenderParams(); // width derived from the "duration" property (seconds)
+
+    // ---- Data for the UI (message thread) ----
+    struct RenderedData
+    {
+        std::shared_ptr<const its::FloatMatrix> spectrogram; // display::spectrogramDisplay
+        std::shared_ptr<const its::SampleBuffer> audio;      // copy of the last rendered sound
+        int generation = 0;                                  // increments with every finished render
+    };
+    RenderedData getRenderedData() const;
+    const its::ByteImage& getPreviewBase() const { return previewBase; } // downscaled grayscale image
+    int getImageGeneration() const { return imageGeneration; }           // increments when the image changes
+    float getPlayheadPosition() const noexcept { return engine.getPlayheadPosition(); }
 
     // Image file types the plugin accepts: wildcards for file choosers, extensions for drag and drop.
     static constexpr const char* imageWildcard =
@@ -67,9 +79,9 @@ public:
     static constexpr const char* imageExtensions = "png;jpg;jpeg;heic;heif;tif;tiff;bmp;gif;webp";
 
 private:
-    void onRenderFinished (std::unique_ptr<its::SampleBuffer> sample,
-                           const juce::String& error); // render thread
+    void onRenderFinished (its::RenderJob::Output output); // render thread
     void ensureRenderSettings();
+    void setImage (juce::MemoryBlock data, const juce::String& name); // updates preview too
     void timerCallback() override; // message thread: frees samples the audio thread released
     its::PlaybackSettings readSettings() const noexcept;
 
@@ -85,6 +97,9 @@ private:
 
     juce::MemoryBlock imageData;              // message thread
     juce::String imageName;                   // message thread
+    its::ByteImage previewBase;               // message thread
+    int imageGeneration = 0;                  // message thread
+    RenderedData rendered;                    // guarded by statusLock
     mutable juce::CriticalSection statusLock; // render thread <-> message thread (never the audio thread)
     juce::String renderingImageName;          // snapshot taken when a render starts
     double renderStartTime = 0.0;

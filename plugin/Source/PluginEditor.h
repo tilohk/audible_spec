@@ -1,15 +1,19 @@
 #pragma once
 
 #include "PluginProcessor.h"
+#include "ui/Panels.h"
+#include "ui/Theme.h"
+#include "ui/Views.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
-// Phase-4 working UI: load/drop an image, render settings, Render/Cancel with progress,
-// and the generic sliders for the real-time parameters. Replaced by the designed UI in phase 5.
+// Image To Sound editor (layout agreed in phase 5): header, image preview + spectrogram,
+// render settings with Render/Cancel, playback controls with drag-out.
 class ImageToSoundEditor final : public juce::AudioProcessorEditor,
                                  public juce::FileDragAndDropTarget,
-                                 private juce::Timer
+                                 private juce::Timer,
+                                 private juce::ValueTree::Listener
 {
 public:
     explicit ImageToSoundEditor (ImageToSoundProcessor& processor);
@@ -23,24 +27,32 @@ public:
     void fileDragExit (const juce::StringArray&) override;
     void filesDropped (const juce::StringArray& files, int, int) override;
 
+    // Runs one UI refresh immediately (used by the snapshot tool and tests).
+    void refreshNow() { timerCallback(); }
+
 private:
     void timerCallback() override;
+    void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override;
     void chooseImage();
     void loadImage (const juce::File& file);
-    void buildRenderSettingsPanel();
+    void bindRenderSettings();
+    juce::File writeDragFile();
 
     ImageToSoundProcessor& owner;
+    its::ui::LookAndFeel lookAndFeel; // declared first: outlives every child component
 
-    juce::TextButton loadButton{"Load image..."}, renderButton{"Render"}, cancelButton{"Cancel"};
-    juce::Label imageLabel, statusLabel, durationLabel;
-    juce::Label renderHeading{{}, "Render settings (applied when you press Render)"};
-    juce::Label playbackHeading{{}, "Playback (real-time, automatable)"};
-    double progressValue = 0.0;
-    juce::ProgressBar progressBar{progressValue};
-    juce::PropertyPanel renderPanel;
-    juce::GenericAudioProcessorEditor playbackPanel;
+    juce::Label title{{}, "Image to sound"}, imageLabel;
+    juce::TextButton loadButton{"Load image..."};
+    its::ui::ImagePreview preview;
+    its::ui::SpectrogramView spectrogram;
+    its::ui::RenderPanel renderPanel;
+    its::ui::PlaybackPanel playbackPanel;
+    juce::TooltipWindow tooltips{this};
     std::unique_ptr<juce::FileChooser> fileChooser;
-    bool dragHighlight = false;
+
+    juce::ValueTree renderSettings;
+    int shownImageGeneration = -1, shownRenderGeneration = -1;
+    int previewDirtyTicks = -1; // > 0: recompute preview after this many ticks (debounce)
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ImageToSoundEditor)
 };

@@ -2,6 +2,7 @@
 
 #include "dsp/Renderer.h"
 #include "image/ImageDecoder.h"
+#include "ui/DisplayData.h"
 
 namespace its
 {
@@ -34,20 +35,21 @@ void RenderJob::start (juce::MemoryBlock imageData, const RenderParams& params)
 
 void RenderJob::run()
 {
-    auto finish = [this] (std::unique_ptr<SampleBuffer> sample, const juce::String& error)
+    auto finish = [this] (Output output)
     {
         rendering.store (false);
         if (onFinished)
-            onFinished (std::move (sample), error);
+            onFinished (std::move (output));
     };
+    auto fail = [&finish] (const juce::String& error) { finish (Output{nullptr, nullptr, error}); };
 
     if (auto error = pendingParams.validate(); error.isNotEmpty())
-        return finish (nullptr, error);
+        return fail (error);
 
     juce::String error;
     auto decoded = decodeImageData (pendingImage.getData(), pendingImage.getSize(), error);
     if (!decoded)
-        return finish (nullptr, error);
+        return fail (error);
 
     auto result = render (*decoded, pendingParams,
                           [this] (int done, int total)
@@ -61,10 +63,13 @@ void RenderJob::run()
         return;
     }
 
-    auto sample = std::make_unique<SampleBuffer>();
-    sample->samples = std::move (result->audio);
-    sample->sampleRate = pendingParams.sampleRate;
+    Output output;
+    output.sample = std::make_unique<SampleBuffer>();
+    output.sample->samples = std::move (result->audio);
+    output.sample->sampleRate = pendingParams.sampleRate;
+    output.spectrogram = std::make_shared<const FloatMatrix> (
+        display::spectrogramDisplay (result->magnitude, pendingParams, spectrogramRows, spectrogramMaxCols));
     progress.store (1.0f);
-    finish (std::move (sample), {});
+    finish (std::move (output));
 }
 } // namespace its

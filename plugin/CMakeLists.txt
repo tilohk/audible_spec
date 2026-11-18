@@ -52,7 +52,20 @@ set(ITS_CONSOLE_DEFINITIONS
 set(ITS_AUDIO_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/audio/SamplerEngine.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Parameters.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderJob.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderJob.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/ui/DisplayData.cpp)
+
+# Plugin processor + editor (used by the plugin and the UI snapshot tool)
+set(ITS_PLUGIN_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/PluginProcessor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/PluginEditor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/ui/Theme.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/ui/Views.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/ui/Panels.cpp)
+
+# Default image shown/played until the user loads one (generated test image).
+juce_add_binary_data(ImageToSoundAssets SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/../reference/test_images/scene_portrait.heic)
 
 # Tests: DSP stages vs the Python fixtures, sampler engine, parameters (run with ctest)
 juce_add_console_app(DspTests PRODUCT_NAME DspTests)
@@ -63,7 +76,8 @@ target_sources(DspTests PRIVATE
     Tests/Npy.cpp
     Tests/DspTests.cpp
     Tests/SamplerTests.cpp
-    Tests/RenderJobTests.cpp)
+    Tests/RenderJobTests.cpp
+    Tests/DisplayTests.cpp)
 target_compile_definitions(DspTests PRIVATE
     ${ITS_CONSOLE_DEFINITIONS}
     ITS_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/..")
@@ -86,6 +100,21 @@ target_link_libraries(RenderCli PRIVATE
     juce::juce_recommended_lto_flags
     juce::juce_recommended_warning_flags)
 
+# UI smoke test: real processor + editor off-screen, writes a PNG of the editor
+juce_add_console_app(UiSnapshot PRODUCT_NAME UiSnapshot)
+target_sources(UiSnapshot PRIVATE ${ITS_AUDIO_SOURCES} ${ITS_PLUGIN_SOURCES} Tools/UiSnapshot.cpp)
+target_compile_definitions(UiSnapshot PRIVATE
+    ${ITS_CONSOLE_DEFINITIONS}
+    JUCE_MODAL_LOOPS_PERMITTED=1
+    JucePlugin_Name="ImageToSound")
+target_link_libraries(UiSnapshot PRIVATE
+    ImageToSoundCore
+    ImageToSoundAssets
+    juce::juce_audio_utils
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags)
+add_test(NAME ui_snapshot COMMAND UiSnapshot ${CMAKE_CURRENT_BINARY_DIR}/ui_snapshot.png)
+
 # ------------------------------------------------------------------
 # The plugin
 # ------------------------------------------------------------------
@@ -105,14 +134,7 @@ juce_add_plugin(ImageToSound
     AU_MAIN_TYPE kAudioUnitType_MusicDevice
     COPY_PLUGIN_AFTER_BUILD TRUE)   # installs into ~/Library/Audio/Plug-Ins for Ableton
 
-target_sources(ImageToSound PRIVATE
-    ${ITS_AUDIO_SOURCES}
-    Source/PluginProcessor.cpp
-    Source/PluginEditor.cpp)
-
-# Default image shown/played until the user loads one (generated test image).
-juce_add_binary_data(ImageToSoundAssets SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/../reference/test_images/scene_portrait.heic)
+target_sources(ImageToSound PRIVATE ${ITS_AUDIO_SOURCES} ${ITS_PLUGIN_SOURCES})
 
 target_compile_definitions(ImageToSound PUBLIC
     JUCE_WEB_BROWSER=0

@@ -104,6 +104,16 @@ void SamplerEngine::process (juce::AudioBuffer<float>& output, const juce::MidiB
     }
     if (position < total)
         renderVoices (output, position, total - position, settings);
+
+    // Playhead for the UI: the newest sounding note.
+    const Voice* newest = nullptr;
+    for (auto& v : voices)
+        if (v.active && !v.killing && (newest == nullptr || v.startOrder > newest->startOrder))
+            newest = &v;
+    playhead.store (newest != nullptr && !newest->sample->samples.empty()
+                        ? (float)(newest->position / (double)newest->sample->samples.size())
+                        : -1.0f,
+                    std::memory_order_relaxed);
 }
 
 void SamplerEngine::startBlock (const PlaybackSettings& settings)

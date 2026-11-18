@@ -1,6 +1,7 @@
 #pragma once
 
 #include "audio/SamplerEngine.h"
+#include "dsp/Matrix.h"
 #include "dsp/RenderParams.h"
 
 #include <juce_core/juce_core.h>
@@ -15,9 +16,19 @@ namespace its
 class RenderJob final : private juce::Thread
 {
 public:
+    // What a finished render delivers. On failure `sample` is null and `error` says why.
+    struct Output
+    {
+        std::unique_ptr<SampleBuffer> sample;
+        std::shared_ptr<const FloatMatrix>
+            spectrogram; // picture for the UI (see display::spectrogramDisplay)
+        juce::String error;
+    };
+
     // Called on the render thread when a render finishes (not when it is cancelled).
-    // On failure `sample` is null and `error` says why.
-    using Callback = std::function<void (std::unique_ptr<SampleBuffer> sample, const juce::String& error)>;
+    using Callback = std::function<void (Output output)>;
+
+    static constexpr int spectrogramRows = 256, spectrogramMaxCols = 1024;
 
     explicit RenderJob (Callback onFinished);
     ~RenderJob() override;

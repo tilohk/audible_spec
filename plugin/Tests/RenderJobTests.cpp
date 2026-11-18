@@ -50,20 +50,22 @@ struct Collector
     std::condition_variable cv;
     int calls = 0;
     std::unique_ptr<SampleBuffer> sample;
+    std::shared_ptr<const FloatMatrix> spectrogram;
     juce::String error;
     std::thread::id thread;
     SamplerEngine* forwardTo = nullptr;
 
     RenderJob::Callback callback()
     {
-        return [this] (std::unique_ptr<SampleBuffer> s, const juce::String& e)
+        return [this] (RenderJob::Output out)
         {
-            if (forwardTo != nullptr && s != nullptr)
-                forwardTo->setSample (std::move (s)); // like the processor: render thread -> engine
+            if (forwardTo != nullptr && out.sample != nullptr)
+                forwardTo->setSample (std::move (out.sample)); // like the processor: render thread -> engine
             const std::lock_guard<std::mutex> lock (mutex);
             ++calls;
-            sample = std::move (s);
-            error = e;
+            sample = std::move (out.sample);
+            spectrogram = out.spectrogram;
+            error = out.error;
             thread = std::this_thread::get_id();
             cv.notify_all();
         };
@@ -105,6 +107,8 @@ public:
             expect (c.thread != std::this_thread::get_id(), "callback must come from the render thread");
             expect (c.error.isEmpty(), c.error);
             expect (c.sample != nullptr);
+            expect (c.spectrogram != nullptr && c.spectrogram->rows == RenderJob::spectrogramRows,
+                    "spectrogram picture for the UI");
             if (c.sample != nullptr)
             {
                 expectEquals ((int)c.sample->samples.size(), params.hopLength * (params.width - 1));

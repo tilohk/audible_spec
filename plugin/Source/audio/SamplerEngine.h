@@ -93,6 +93,10 @@ public:
                   const PlaybackSettings& settings);
     int getNumActiveVoices() const noexcept;
 
+    // Position of the most recently started sounding note as a fraction of its sample
+    // (0..1), or -1 when nothing plays. Written by the audio thread, read by the UI.
+    float getPlayheadPosition() const noexcept { return playhead.load (std::memory_order_relaxed); }
+
 private:
     struct Voice
     {
@@ -137,6 +141,7 @@ private:
     PointerQueue<SampleBuffer, 8> incoming;        // producer -> audio thread
     PointerQueue<const SampleBuffer, 32> retired;  // audio thread -> message thread
     std::atomic<bool> sampleAvailable{false};
+    std::atomic<float> playhead{-1.0f};
 
     std::vector<float> mix;
     juce::dsp::StateVariableTPTFilter<float> lowpass, highpass;
