@@ -19,6 +19,11 @@ double estimateRenderSeconds (const RenderParams& params);
 FloatMatrix spectrogramDisplay (const FloatMatrix& magnitude, const RenderParams& params, int rows,
                                 int maxCols);
 
+// The same picture computed from audio (STFT with the render's n_fft/hop), e.g. for a sound
+// restored from a project, where the render's magnitude is not available.
+FloatMatrix analyseSpectrogram (const std::vector<float>& audio, const RenderParams& params, int rows,
+                                int maxCols);
+
 // Grayscale + LANCZOS downscale to fit maxWidth x maxHeight (aspect kept). Done once per image.
 ByteImage previewBase (const RgbaImage& image, int maxWidth, int maxHeight);
 

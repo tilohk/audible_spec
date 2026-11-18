@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 
+#include "Presets.h"
 #include "ui/DisplayData.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -13,9 +14,17 @@ ImageToSoundEditor::ImageToSoundEditor (ImageToSoundProcessor& p)
     title.setColour (juce::Label::textColourId, colours::text);
     imageLabel.setFont (juce::FontOptions (13.0f));
     imageLabel.setColour (juce::Label::textColourId, colours::textSecondary);
-    for (auto* c : std::initializer_list<juce::Component*>{&title, &imageLabel, &loadButton, &preview,
-                                                           &spectrogram, &renderPanel, &playbackPanel})
+    for (auto* c :
+         std::initializer_list<juce::Component*>{&title, &imageLabel, &loadButton, &presetLabel, &presetBox,
+                                                 &preview, &spectrogram, &renderPanel, &playbackPanel})
         addAndMakeVisible (c);
+
+    presetLabel.setFont (juce::FontOptions (13.0f));
+    presetLabel.setColour (juce::Label::textColourId, colours::textSecondary);
+    presetLabel.setJustificationType (juce::Justification::centredRight);
+    presetBox.setTextWhenNothingSelected ("Choose a preset");
+    presetBox.onChange = [this] { presetChosen(); };
+    rebuildPresetMenu();
 
     loadButton.onClick = [this] { chooseImage(); };
     preview.onClick = [this] { chooseImage(); };
@@ -67,6 +76,9 @@ void ImageToSoundEditor::resized()
     auto header = area.removeFromTop (30);
     title.setBounds (header.removeFromLeft (150));
     loadButton.setBounds (header.removeFromRight (120).reduced (0, 2));
+    header.removeFromRight (16);
+    presetBox.setBounds (header.removeFromRight (210).reduced (0, 2));
+    presetLabel.setBounds (header.removeFromRight (56));
     imageLabel.setBounds (header);
     area.removeFromTop (10);
 
@@ -193,4 +205,83 @@ void ImageToSoundEditor::filesDropped (const juce::StringArray& files, int, int)
     preview.setDropHighlight (false);
     if (!files.isEmpty())
         loadImage (juce::File (files[0]));
+}
+
+// ---------------------------------------------------------------- presets
+
+namespace
+{
+constexpr int saveItemId = 10000;
+}
+
+void ImageToSoundEditor::rebuildPresetMenu()
+{
+    presetBox.clear (juce::dontSendNotification);
+    presetTexts.clear();
+
+    auto addSection = [this] (const juce::String& heading, const std::vector<its::presets::Preset>& list)
+    {
+        if (list.empty())
+            return;
+        presetBox.addSectionHeading (heading);
+        for (auto& p : list)
+        {
+            presetTexts.push_back (p.text);
+            presetBox.addItem (p.name, (int)presetTexts.size());
+        }
+    };
+    addSection ("Built-in", its::presets::builtIns());
+    addSection ("Your presets", its::presets::userPresets());
+    presetBox.addSeparator();
+    presetBox.addItem ("Save current settings as preset...", saveItemId);
+
+    // Show the last applied preset, if it is still in the list.
+    for (int i = 0; i < presetBox.getNumItems(); ++i)
+        if (presetBox.getItemText (i) == owner.getPresetName())
+            presetBox.setSelectedItemIndex (i, juce::dontSendNotification);
+}
+
+void ImageToSoundEditor::presetChosen()
+{
+    const int id = presetBox.getSelectedId();
+    if (id == saveItemId)
+    {
+        rebuildPresetMenu(); // put the selection back to the current preset
+        savePresetDialog();
+        return;
+    }
+    if (id >= 1 && id <= (int)presetTexts.size())
+        owner.applyPreset (presetTexts[(size_t)id - 1]);
+}
+
+void ImageToSoundEditor::savePresetDialog()
+{
+    auto* window = new juce::AlertWindow (
+        "Save preset", "Name for the current render settings:", juce::MessageBoxIconType::NoIcon);
+    window->addTextEditor ("name", owner.getPresetName().isNotEmpty() ? owner.getPresetName() : "My preset");
+    window->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    window->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+
+    juce::Component::SafePointer<ImageToSoundEditor> safeThis (this);
+    window->enterModalState (
+        true,
+        juce::ModalCallbackFunction::create (
+            [safeThis, window] (int result)
+            {
+                if (safeThis == nullptr || result != 1)
+                    return;
+                juce::String error;
+                const auto name = window->getTextEditorContents ("name").trim();
+                if (!its::presets::saveUserPreset (safeThis->owner.getRenderSettings(), name, error))
+                {
+                    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                                                            "Save preset", error);
+                    return;
+                }
+                safeThis->rebuildPresetMenu();
+                for (int i = 0; i < safeThis->presetBox.getNumItems(); ++i)
+                    if (safeThis->presetBox.getItemText (i) == name)
+                        safeThis->presetBox.setSelectedItemIndex (i, juce::dontSendNotification);
+            }),
+        true);
 }

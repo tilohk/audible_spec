@@ -61,11 +61,16 @@ public:
     juce::ValueTree getRenderSettings(); // "RENDER" child of the state, snake_case properties
     its::RenderParams getRenderParams(); // width derived from the "duration" property (seconds)
 
+    // Resets the render settings to defaults, applies the preset, and says to press Render.
+    void applyPreset (const juce::String& presetText);
+    juce::String getPresetName(); // stored with the render settings (saved in the project)
+
     // ---- Data for the UI (message thread) ----
     struct RenderedData
     {
         std::shared_ptr<const its::FloatMatrix> spectrogram; // display::spectrogramDisplay
         std::shared_ptr<const its::SampleBuffer> audio;      // copy of the last rendered sound
+        juce::MemoryBlock encodedSound;                      // the same sound as FLAC, for the project state
         int generation = 0;                                  // increments with every finished render
     };
     RenderedData getRenderedData() const;
@@ -81,7 +86,9 @@ public:
 private:
     void onRenderFinished (its::RenderJob::Output output); // render thread
     void ensureRenderSettings();
+    static void ensureRenderSettingsIn (juce::ValueTree& state);
     void setImage (juce::MemoryBlock data, const juce::String& name); // updates preview too
+    bool restoreSound (const juce::MemoryBlock& flac);                // project load: play without render
     void timerCallback() override; // message thread: frees samples the audio thread released
     its::PlaybackSettings readSettings() const noexcept;
 
@@ -95,11 +102,13 @@ private:
 
     its::SamplerEngine engine;
 
-    juce::MemoryBlock imageData;              // message thread
-    juce::String imageName;                   // message thread
-    its::ByteImage previewBase;               // message thread
-    int imageGeneration = 0;                  // message thread
-    RenderedData rendered;                    // guarded by statusLock
+    mutable juce::CriticalSection
+        imageLock;               // image data/name may be read by getStateInformation on any thread
+    juce::MemoryBlock imageData; // written on the message thread under imageLock
+    juce::String imageName;      // written on the message thread under imageLock
+    its::ByteImage previewBase;  // message thread
+    int imageGeneration = 0;     // message thread
+    RenderedData rendered;       // guarded by statusLock
     mutable juce::CriticalSection statusLock; // render thread <-> message thread (never the audio thread)
     juce::String renderingImageName;          // snapshot taken when a render starts
     double renderStartTime = 0.0;

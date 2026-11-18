@@ -37,12 +37,18 @@ private:
     void loadImage (const juce::File& file);
     void bindRenderSettings();
     juce::File writeDragFile();
+    void rebuildPresetMenu();
+    void presetChosen();
+    void savePresetDialog();
 
     ImageToSoundProcessor& owner;
     its::ui::LookAndFeel lookAndFeel; // declared first: outlives every child component
 
     juce::Label title{{}, "Image to sound"}, imageLabel;
     juce::TextButton loadButton{"Load image..."};
+    juce::Label presetLabel{{}, "Preset"};
+    juce::ComboBox presetBox;
+    std::vector<juce::String> presetTexts; // index = combo item id - 1
     its::ui::ImagePreview preview;
     its::ui::SpectrogramView spectrogram;
     its::ui::RenderPanel renderPanel;

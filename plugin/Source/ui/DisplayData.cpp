@@ -1,5 +1,6 @@
 #include "DisplayData.h"
 
+#include "dsp/GriffinLim.h"
 #include "dsp/ImageProcessor.h"
 
 #include <algorithm>
@@ -50,6 +51,27 @@ FloatMatrix spectrogramDisplay (const FloatMatrix& magnitude, const RenderParams
         }
     }
     return out;
+}
+
+FloatMatrix analyseSpectrogram (const std::vector<float>& audio, const RenderParams& params, int rows,
+                                int maxCols)
+{
+    if (audio.size() < 4 || params.validate().isNotEmpty())
+        return {};
+
+    // Normalise like the render's magnitude (peak 1 = 0 dB) so the colours match.
+    Stft stft (params.nFft, params.hopLength);
+    ComplexSpectrogram spec;
+    stft.forward (audio.data(), (int)audio.size(), spec);
+    FloatMatrix magnitude (spec.numBins, spec.numFrames);
+    float peak = 0.0f;
+    for (int f = 0; f < spec.numFrames; ++f)
+        for (int k = 0; k < spec.numBins; ++k)
+            peak = std::max (peak, magnitude (k, f) = std::abs (spec.frame (f)[k]));
+    if (peak > 0.0f)
+        for (auto& v : magnitude.data)
+            v /= peak;
+    return spectrogramDisplay (magnitude, params, rows, maxCols);
 }
 
 ByteImage previewBase (const RgbaImage& image, int maxWidth, int maxHeight)

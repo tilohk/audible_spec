@@ -3,6 +3,8 @@
 #include "BinaryData.h"
 #include "Parameters.h"
 #include "PluginEditor.h"
+#include "Presets.h"
+#include "audio/AudioCodec.h"
 #include "image/ImageDecoder.h"
 #include "ui/DisplayData.h"
 
@@ -45,8 +47,13 @@ ImageToSoundProcessor::~ImageToSoundProcessor()
 
 void ImageToSoundProcessor::ensureRenderSettings()
 {
+    ensureRenderSettingsIn (apvts.state);
+}
+
+void ImageToSoundProcessor::ensureRenderSettingsIn (juce::ValueTree& state)
+{
     // Add any missing render setting (new state, or a project saved by an older version).
-    auto tree = apvts.state.getOrCreateChildWithName ("RENDER", nullptr);
+    auto tree = state.getOrCreateChildWithName ("RENDER", nullptr);
     const its::RenderParams defaultParams;
     const auto defaults = defaultParams.toJson();
     for (auto& property : defaults.getDynamicObject()->getProperties())
@@ -80,6 +87,25 @@ its::RenderParams ImageToSoundProcessor::getRenderParams()
     return params;
 }
 
+void ImageToSoundProcessor::applyPreset (const juce::String& presetText)
+{
+    const auto parsed = its::presets::parse (presetText);
+    auto tree = getRenderSettings();
+    its::presets::apply (parsed, tree);
+    tree.setProperty ("preset_name", parsed.name, nullptr);
+
+    const juce::ScopedLock sl (statusLock);
+    statusMessage = "Preset \"" + parsed.name + "\" loaded. Press Render to hear it.";
+    if (parsed.problems.size() > 0)
+        statusMessage << " (" << parsed.problems.size() << " unknown line(s) skipped)";
+    statusIsError = false;
+}
+
+juce::String ImageToSoundProcessor::getPresetName()
+{
+    return getRenderSettings()["preset_name"].toString();
+}
+
 void ImageToSoundProcessor::setImage (juce::MemoryBlock data, const juce::String& name)
 {
     juce::String error;
@@ -87,6 +113,7 @@ void ImageToSoundProcessor::setImage (juce::MemoryBlock data, const juce::String
         previewBase = its::display::previewBase (*decoded, 480, 360);
     else
         previewBase = {};
+    const juce::ScopedLock sl (imageLock);
     imageData = std::move (data);
     imageName = name;
     ++imageGeneration;
@@ -162,9 +189,11 @@ void ImageToSoundProcessor::onRenderFinished (its::RenderJob::Output output)
     juce::String message;
     bool isError = error.isNotEmpty();
     std::shared_ptr<const its::SampleBuffer> audioCopy;
+    juce::MemoryBlock encoded;
     if (sample != nullptr)
     {
         audioCopy = std::make_shared<const its::SampleBuffer> (*sample); // for the UI (drag-out)
+        encoded = its::codec::encodeFlac (*sample);                      // for the project state
         const double seconds = (double)sample->samples.size() / sample->sampleRate;
         const double took = (juce::Time::getMillisecondCounterHiRes() - startTime) / 1000.0;
         message = name + ": " + juce::String (seconds, 2) + " s of audio, rendered in " +
@@ -187,6 +216,7 @@ void ImageToSoundProcessor::onRenderFinished (its::RenderJob::Output output)
     {
         rendered.audio = std::move (audioCopy);
         rendered.spectrogram = std::move (output.spectrogram);
+        rendered.encodedSound = std::move (encoded);
         ++rendered.generation;
     }
 }
@@ -261,20 +291,133 @@ juce::AudioProcessorEditor* ImageToSoundProcessor::createEditor()
     return new ImageToSoundEditor (*this);
 }
 
+// ---------------------------------------------------------------- project state
+//
+// Format (version 1): "ITS1" magic, int32 version, then a binary ValueTree:
+//   PARAMETERS (apvts state)
+//     RENDER  (render settings)
+//     IMAGE   name, data (the image file as loaded)
+//     SOUND   sample_rate, flac (24-bit FLAC of the rendered sound)
+// Projects from phases 3-5 stored plain XML via copyXmlToBinary; they still load.
+
+namespace
+{
+constexpr juce::uint32 stateMagic = 0x31535449; // "ITS1" little-endian
+constexpr int stateVersion = 1;
+} // namespace
+
 void ImageToSoundProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    if (auto xml = apvts.copyState().createXml())
-        copyXmlToBinary (*xml, destData);
+    auto state = apvts.copyState();
+    ensureRenderSettingsIn (state);
+
+    {
+        const juce::ScopedLock sl (imageLock);
+        juce::ValueTree image ("IMAGE");
+        image.setProperty ("name", imageName, nullptr);
+        image.setProperty ("data", juce::var (imageData), nullptr);
+        state.appendChild (image, nullptr);
+    }
+    {
+        const juce::ScopedLock sl (statusLock);
+        if (rendered.audio != nullptr && !rendered.encodedSound.isEmpty())
+        {
+            juce::ValueTree sound ("SOUND");
+            sound.setProperty ("sample_rate", rendered.audio->sampleRate, nullptr);
+            sound.setProperty ("flac", juce::var (rendered.encodedSound), nullptr);
+            state.appendChild (sound, nullptr);
+        }
+    }
+
+    juce::MemoryOutputStream out (destData, false);
+    out.writeInt ((int)stateMagic);
+    out.writeInt (stateVersion);
+    state.writeToStream (out);
 }
 
 void ImageToSoundProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
-    if (auto xml = getXmlFromBinary (data, sizeInBytes))
-        if (xml->hasTagName (apvts.state.getType()))
+    juce::ValueTree state;
+    if (sizeInBytes > 8 && juce::ByteOrder::littleEndianInt (data) == stateMagic)
+    {
+        const int version = (int)juce::ByteOrder::littleEndianInt (static_cast<const char*> (data) + 4);
+        if (version <= stateVersion)
+            state =
+                juce::ValueTree::readFromData (static_cast<const char*> (data) + 8, (size_t)sizeInBytes - 8);
+    }
+    else if (auto xml = getXmlFromBinary (data, sizeInBytes)) // phases 3-5
+    {
+        state = juce::ValueTree::fromXml (*xml);
+    }
+
+    if (!state.isValid() || !state.hasType (apvts.state.getType()))
+    {
+        const juce::ScopedLock sl (statusLock);
+        statusMessage = "The saved plugin state couldn't be read, so default settings are used.";
+        statusIsError = true;
+        return;
+    }
+
+    // Image and sound are not part of the parameter state.
+    auto image = state.getChildWithName ("IMAGE");
+    auto sound = state.getChildWithName ("SOUND");
+    state.removeChild (image, nullptr);
+    state.removeChild (sound, nullptr);
+    apvts.replaceState (state);
+    ensureRenderSettings();
+
+    renderJob.cancel(); // e.g. the render of the built-in image started in the constructor
+
+    bool restoredImage = false;
+    if (auto* block = image["data"].getBinaryData(); block != nullptr && !block->isEmpty())
+    {
+        juce::String error;
+        if (its::decodeImageData (block->getData(), block->getSize(), error))
         {
-            apvts.replaceState (juce::ValueTree::fromXml (*xml));
-            ensureRenderSettings(); // projects saved before phase 4 have no RENDER node
+            setImage (*block, image["name"].toString());
+            restoredImage = true;
         }
+    }
+
+    if (auto* flac = sound["flac"].getBinaryData(); flac != nullptr && restoreSound (*flac))
+        return; // plays right away, no render
+
+    // No usable sound in the project (older project or damaged data): render instead.
+    startRender();
+    if (!restoredImage && image.isValid())
+    {
+        const juce::ScopedLock sl (statusLock);
+        statusMessage =
+            "The image saved in this project couldn't be read. Rendering the current image instead.";
+        statusIsError = true;
+    }
+}
+
+bool ImageToSoundProcessor::restoreSound (const juce::MemoryBlock& flac)
+{
+    auto decoded = its::codec::decodeFlac (flac);
+    if (decoded == nullptr || decoded->samples.size() < 4)
+        return false;
+
+    auto copy = std::make_shared<const its::SampleBuffer> (*decoded);
+    auto picture = std::make_shared<const its::FloatMatrix> (
+        its::display::analyseSpectrogram (copy->samples, getRenderParams(), its::RenderJob::spectrogramRows,
+                                          its::RenderJob::spectrogramMaxCols));
+
+    // The render thread is stopped (see setStateInformation), so this thread is now the only producer.
+    if (!engine.setSample (std::move (decoded)))
+        return false;
+
+    const juce::ScopedLock sl (statusLock);
+    rendered.audio = std::move (copy);
+    rendered.spectrogram = std::move (picture);
+    rendered.encodedSound = flac;
+    ++rendered.generation;
+    statusMessage = imageName + ": restored from the project (" +
+                    juce::String ((double)rendered.audio->samples.size() / rendered.audio->sampleRate, 2) +
+                    " s, no render needed)";
+    statusIsError = false;
+    return true;
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

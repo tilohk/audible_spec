@@ -61,11 +61,15 @@ set(ITS_PLUGIN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/PluginEditor.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/ui/Theme.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/ui/Views.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/ui/Panels.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/ui/Panels.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/audio/AudioCodec.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Presets.cpp)
 
-# Default image shown/played until the user loads one (generated test image).
+# Embedded files: default image (generated test image) and the built-in presets.
+file(GLOB ITS_PRESET_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/../presets/*.txt)
 juce_add_binary_data(ImageToSoundAssets SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/../reference/test_images/scene_portrait.heic)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../reference/test_images/scene_portrait.heic
+    ${ITS_PRESET_FILES})
 
 # Tests: DSP stages vs the Python fixtures, sampler engine, parameters (run with ctest)
 juce_add_console_app(DspTests PRODUCT_NAME DspTests)
@@ -114,6 +118,22 @@ target_link_libraries(UiSnapshot PRIVATE
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags)
 add_test(NAME ui_snapshot COMMAND UiSnapshot ${CMAKE_CURRENT_BINARY_DIR}/ui_snapshot.png)
+
+# Plugin-level tests: project state save/load, presets (real processor, no host)
+juce_add_console_app(PluginTests PRODUCT_NAME PluginTests)
+target_sources(PluginTests PRIVATE ${ITS_AUDIO_SOURCES} ${ITS_PLUGIN_SOURCES}
+    Tests/TestMain.cpp
+    Tests/StateTests.cpp)
+target_compile_definitions(PluginTests PRIVATE
+    ${ITS_CONSOLE_DEFINITIONS}
+    JucePlugin_Name="ImageToSound")
+target_link_libraries(PluginTests PRIVATE
+    ImageToSoundCore
+    ImageToSoundAssets
+    juce::juce_audio_utils
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags)
+add_test(NAME plugin_tests COMMAND PluginTests)
 
 # ------------------------------------------------------------------
 # The plugin
