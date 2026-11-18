@@ -109,4 +109,25 @@ Later options (from the README's roadmap): stereo/panning from image columns, Me
 ## Verification
 - **Phase 1–2:** C++ unit tests match the Python fixtures (pixels and magnitude within tolerance; GL spectral convergence ≤ Python's). Run `render_cli` on `reference/test_images/scene_portrait.heic` and A/B it against the WAV `main.py` renders with the same settings, by ear and by the spectrogram PNG.
 - **Phase 3+:** Run the Standalone build for quick tests, then load VST3 and AU in Ableton: play MIDI, automate real-time params, render while notes play (no glitches), save and reopen the project (the sound is restored without re-rendering), drag the WAV to an audio track.
-- **Release:** `pluginval --strictness-level 5` and `auval -v aumu ....` pass.
+- **Release:** `pluginval --strictness-level 5` and `auval -v aumu I2Sd Tlhk` pass on the Release build:
+  ```bash
+  /Applications/pluginval.app/Contents/MacOS/pluginval --strictness-level 5 --validate-in-process --validate ~/Library/Audio/Plug-Ins/VST3/audible_spec.vst3
+  /Applications/pluginval.app/Contents/MacOS/pluginval --strictness-level 5 --validate-in-process --validate ~/Library/Audio/Plug-Ins/Components/audible_spec.component
+  ```
+  The AU run prints "Current program is -1": a warning about the host-side preset number of a plugin with a single program, not a failure.
+
+## Release checklist (phase 7, manual in Ableton Live 12)
+Build: Release (`plugin/build-release`), installed into `~/Library/Audio/Plug-Ins`. Quit and restart Live first.
+
+| # | Check | Expected |
+|---|---|---|
+| 1 | Load **VST3** and **AU** version on two MIDI tracks | Both open, play MIDI at the right pitch |
+| 2 | **Multiple instances**: 3 tracks, a different image + render on each | Each keeps its own sound; rendering one does not disturb the others |
+| 3 | **Render while notes play** (held chord, loop on) | No clicks or dropouts; new notes use the new sound |
+| 4 | **Automation**: draw Transpose, Low-pass, Sample Start/End and Filter Slope | Follows smoothly; start after end never breaks playback |
+| 5 | **Save project, quit Live, reopen** | Same image, render settings, parameters, fold state; sound plays without rendering |
+| 6 | **Sample-rate change** (Preferences → Audio: 44.1 → 48 → 96 kHz) while a note plays | Pitch stays correct, no crash |
+| 7 | **Freeze** and **Flatten** a track; **Export audio** of a clip | Frozen/exported audio matches what you hear |
+| 8 | **Drag WAV** to an audio track | Clip appears and plays the rendered sound |
+| 9 | Close and reopen the plugin window several times, also during a render | No crash; progress continues |
+| 10 | Render presets: load each built-in, save one of your own, use the dice | All load; your preset appears under "Your render presets" |
