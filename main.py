@@ -13,19 +13,25 @@ Usage:
     python main.py
 
 Edit the parameters in the CONFIG section below.
+
+This file is also the reference implementation for the C++ plugin:
+every pipeline stage is a separate function taking a `Config`, so
+`reference/export_fixtures.py` can dump each intermediate result.
 """
 
+from collections.abc import Mapping
+from dataclasses import dataclass, fields, replace
 from pathlib import Path
+from typing import Any, Optional
 
-import numpy as np
-from PIL import Image, ImageOps, ImageEnhance, ImageFilter
 import librosa
-import soundfile as sf
 import matplotlib.pyplot as plt
-from scipy.ndimage import gaussian_filter
-from pillow_heif import register_heif_opener
+import numpy as np
+import soundfile as sf
 from matplotlib.ticker import FixedLocator, FuncFormatter
-
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+from pillow_heif import register_heif_opener
+from scipy.ndimage import gaussian_filter
 
 register_heif_opener()
 
@@ -38,12 +44,11 @@ register_heif_opener()
 # File Settings
 # -----------------------------
 
-IMAGE_PATH = Path("data/images/IMG_2198.HEIC")
+# Default input is a generated test image (reference/make_test_images.py).
+# Put your own images into data/images/ (git-ignored) and point IMAGE_PATH there.
+IMAGE_PATH = Path("reference/test_images/scene_portrait.heic")
 OUTPUT_NAME = "testneu1"
 OUTPUT_DIR = Path("data/output")
-
-OUTPUT_WAV = OUTPUT_DIR / f"{OUTPUT_NAME}.wav"
-OUTPUT_SPECTROGRAM = OUTPUT_DIR / f"{OUTPUT_NAME}_spec.png"
 
 
 # -----------------------------
@@ -126,6 +131,14 @@ HOP_LENGTH = 32
 # 80 dB = more detailed / quieter regions preserved
 DYNAMIC = 50.0
 
+# Values below this (0..1, after frequency mapping) are treated as silence.
+# Higher = removes more low-level noise from the image.
+NOISE_FLOOR = 0.15
+
+# Exponent applied after the noise floor.
+# > 1.0 = quieter mid-tones / more contrast in the spectrum.
+CURVE = 1.5
+
 # Final audio peak.
 OUTPUT_GAIN = 0.95
 
@@ -162,108 +175,228 @@ FIGURE_DPI = 150
 
 
 # ============================================================
+# CONFIG OBJECT
+# ============================================================
+
+
+@dataclass(frozen=True)
+class Config:
+    """All parameters of one render. Field names are the lower-case CONFIG names."""
+
+    image_path: Path
+    output_name: str
+    output_dir: Path
+    width: int
+    gamma: float
+    blur: float
+    contrast: float
+    invert: bool
+    flip_horizontal: bool
+    flip_vertical: bool
+    sample_rate: int
+    n_fft: int
+    fmin: float
+    fmax: float
+    frequency_scale: str
+    hop_length: int
+    dynamic: float
+    noise_floor: float
+    curve: float
+    output_gain: float
+    griffin_lim_iterations: int
+    random_seed: int
+    griffin_lim_momentum: float
+    spectrum_blur_time: float
+    spectrum_blur_freq: float
+    save_visualization: bool
+    figure_dpi: int
+
+    @property
+    def spec_height(self) -> int:
+        return self.n_fft // 2 + 1
+
+    @property
+    def duration(self) -> float:
+        return self.width * self.hop_length / self.sample_rate
+
+    @property
+    def output_wav(self) -> Path:
+        return self.output_dir / f"{self.output_name}.wav"
+
+    @property
+    def output_spectrogram(self) -> Path:
+        return self.output_dir / f"{self.output_name}_spec.png"
+
+    def with_params(self, params: Mapping[str, Any]) -> "Config":
+        """Return a copy with `params` applied. Keys may be lower or upper case."""
+        names = {f.name for f in fields(self)}
+        updates: dict[str, Any] = {}
+        for key, value in params.items():
+            name = key.lower()
+            if name not in names:
+                raise KeyError(f"Unknown parameter: {key}")
+            if name in {"image_path", "output_dir"}:
+                value = Path(value)
+            updates[name] = value
+        return replace(self, **updates)
+
+    def to_dict(self) -> dict[str, Any]:
+        """JSON-friendly dict (paths as strings)."""
+        result = {}
+        for f in fields(self):
+            value = getattr(self, f.name)
+            result[f.name] = str(value) if isinstance(value, Path) else value
+        return result
+
+
+def default_config() -> Config:
+    """Build a Config from the CONFIG constants at the top of this file."""
+    return Config(
+        image_path=IMAGE_PATH,
+        output_name=OUTPUT_NAME,
+        output_dir=OUTPUT_DIR,
+        width=WIDTH,
+        gamma=GAMMA,
+        blur=BLUR,
+        contrast=CONTRAST,
+        invert=INVERT,
+        flip_horizontal=FLIP_HORIZONTAL,
+        flip_vertical=FLIP_VERTICAL,
+        sample_rate=SAMPLE_RATE,
+        n_fft=N_FFT,
+        fmin=FMIN,
+        fmax=FMAX,
+        frequency_scale=FREQUENCY_SCALE,
+        hop_length=HOP_LENGTH,
+        dynamic=DYNAMIC,
+        noise_floor=NOISE_FLOOR,
+        curve=CURVE,
+        output_gain=OUTPUT_GAIN,
+        griffin_lim_iterations=GRIFFIN_LIM_ITERATIONS,
+        random_seed=RANDOM_SEED,
+        griffin_lim_momentum=GRIFFIN_LIM_MOMENTUM,
+        spectrum_blur_time=SPECTRUM_BLUR_TIME,
+        spectrum_blur_freq=SPECTRUM_BLUR_FREQ,
+        save_visualization=SAVE_VISUALIZATION,
+        figure_dpi=FIGURE_DPI,
+    )
+
+
+@dataclass
+class RenderResult:
+    """Every intermediate stage of one render (used for C++ test fixtures)."""
+
+    resized: np.ndarray  # uint8 grayscale, resized, before any processing
+    pixels: np.ndarray  # float32 0..1 after image processing
+    frequencies: np.ndarray  # STFT bin frequencies in Hz
+    mapped: np.ndarray  # float32 0..1 after frequency mapping
+    magnitude: np.ndarray  # linear magnitude spectrogram
+    raw_audio: np.ndarray  # Griffin-Lim output before normalization
+    audio: np.ndarray  # final normalized audio
+
+
+# ============================================================
 # HELPERS
 # ============================================================
 
-def validate_config():
+
+def validate_config(cfg: Config):
     """Validate parameters before doing expensive processing."""
 
-    if not IMAGE_PATH.exists():
-        raise FileNotFoundError(
-            f"Image not found: {IMAGE_PATH.resolve()}"
-        )
+    if not cfg.image_path.exists():
+        raise FileNotFoundError(f"Image not found: {cfg.image_path.resolve()}")
 
-    if SAMPLE_RATE <= 0:
+    if cfg.sample_rate <= 0:
         raise ValueError("SAMPLE_RATE must be > 0.")
 
-    if N_FFT <= 0:
+    if cfg.n_fft <= 0:
         raise ValueError("N_FFT must be > 0.")
 
-    if HOP_LENGTH <= 0:
+    if cfg.hop_length <= 0:
         raise ValueError("HOP_LENGTH must be > 0.")
 
-    if WIDTH <= 0:
+    if cfg.width <= 0:
         raise ValueError("WIDTH must be > 0.")
 
-    if FMIN <= 0:
+    if cfg.fmin <= 0:
         raise ValueError("FMIN must be > 0.")
 
-    nyquist = SAMPLE_RATE / 2.0
+    nyquist = cfg.sample_rate / 2.0
 
-    if FMAX > nyquist:
-        raise ValueError(
-            f"FMAX ({FMAX}) cannot exceed Nyquist frequency "
-            f"({nyquist})."
-        )
+    if cfg.fmax > nyquist:
+        raise ValueError(f"FMAX ({cfg.fmax}) cannot exceed Nyquist frequency ({nyquist}).")
 
-    if FMIN >= FMAX:
+    if cfg.fmin >= cfg.fmax:
         raise ValueError("FMIN must be smaller than FMAX.")
 
-    if GAMMA <= 0:
+    if cfg.gamma <= 0:
         raise ValueError("GAMMA must be > 0.")
 
-    if DYNAMIC <= 0:
+    if cfg.dynamic <= 0:
         raise ValueError("DYNAMIC must be > 0.")
 
-    if FREQUENCY_SCALE not in {"linear", "log"}:
-        raise ValueError(
-            'FREQUENCY_SCALE must be "linear" or "log".'
-        )
+    if not 0.0 <= cfg.noise_floor < 1.0:
+        raise ValueError("NOISE_FLOOR must be in [0, 1).")
+
+    if cfg.curve <= 0:
+        raise ValueError("CURVE must be > 0.")
+
+    if cfg.frequency_scale not in {"linear", "log"}:
+        raise ValueError('FREQUENCY_SCALE must be "linear" or "log".')
 
 
-def load_and_process_image():
-    """
-    Load the image, convert to grayscale, resize to STFT dimensions,
-    and apply creative image processing.
-    """
+def load_resized_image(cfg: Config) -> Image.Image:
+    """Load the image as grayscale and resize it to the STFT dimensions."""
 
-    spec_height = N_FFT // 2 + 1
-
-    img = Image.open(IMAGE_PATH).convert("L")
+    img = Image.open(cfg.image_path).convert("L")
 
     # Resize to the exact spectrogram dimensions.
-    img = img.resize(
-        (WIDTH, spec_height),
-        Image.Resampling.LANCZOS
-    )
+    return img.resize((cfg.width, cfg.spec_height), Image.Resampling.LANCZOS)
 
-    if INVERT:
+
+def process_image(img: Image.Image, cfg: Config) -> np.ndarray:
+    """Apply the creative image processing to an already resized image."""
+
+    if cfg.invert:
         img = ImageOps.invert(img)
 
-    if CONTRAST != 1.0:
-        img = ImageEnhance.Contrast(img).enhance(CONTRAST)
+    if cfg.contrast != 1.0:
+        img = ImageEnhance.Contrast(img).enhance(cfg.contrast)
 
-    if BLUR > 0:
-        img = img.filter(
-            ImageFilter.GaussianBlur(radius=BLUR)
-        )
+    if cfg.blur > 0:
+        img = img.filter(ImageFilter.GaussianBlur(radius=cfg.blur))
 
-    if FLIP_HORIZONTAL:
+    if cfg.flip_horizontal:
         img = ImageOps.mirror(img)
 
     pixels = np.asarray(img).astype(np.float32) / 255.0
 
     # Gamma shaping.
     pixels = np.clip(pixels, 0.0, 1.0)
-    pixels = pixels ** GAMMA
+    pixels = pixels**cfg.gamma
 
-    if FLIP_VERTICAL:
+    if cfg.flip_vertical:
         pixels = np.flipud(pixels)
 
     return pixels
 
 
-def build_frequency_axis():
+def load_and_process_image(cfg: Config) -> np.ndarray:
+    """
+    Load the image, convert to grayscale, resize to STFT dimensions,
+    and apply creative image processing.
+    """
+
+    return process_image(load_resized_image(cfg), cfg)
+
+
+def build_frequency_axis(cfg: Config) -> np.ndarray:
     """Return the STFT frequency bins."""
 
-    return np.linspace(
-        0.0,
-        SAMPLE_RATE / 2.0,
-        N_FFT // 2 + 1
-    )
+    return np.linspace(0.0, cfg.sample_rate / 2.0, cfg.n_fft // 2 + 1)
 
 
-def apply_frequency_mapping(pixels, frequencies):
+def apply_frequency_mapping(pixels: np.ndarray, frequencies: np.ndarray, cfg: Config) -> np.ndarray:
     """
     Map image rows to actual STFT frequencies.
 
@@ -280,27 +413,16 @@ def apply_frequency_mapping(pixels, frequencies):
 
     target = np.zeros_like(pixels)
 
-    valid = (
-        (frequencies >= FMIN) &
-        (frequencies <= FMAX)
-    )
+    valid = (frequencies >= cfg.fmin) & (frequencies <= cfg.fmax)
 
     target_freqs = frequencies[valid]
 
-    if FREQUENCY_SCALE == "linear":
-        source_positions = np.linspace(
-            FMIN,
-            FMAX,
-            source_height
-        )
+    if cfg.frequency_scale == "linear":
+        source_positions = np.linspace(cfg.fmin, cfg.fmax, source_height)
 
         for column in range(width):
             target[valid, column] = np.interp(
-                target_freqs,
-                source_positions,
-                pixels[:, column],
-                left=0.0,
-                right=0.0
+                target_freqs, source_positions, pixels[:, column], left=0.0, right=0.0
             )
 
     else:
@@ -312,18 +434,12 @@ def apply_frequency_mapping(pixels, frequencies):
         # The log interpolation makes equal vertical distances
         # correspond approximately to equal musical intervals.
 
-        log_fmin = np.log(FMIN)
-        log_fmax = np.log(FMAX)
+        log_fmin = np.log(cfg.fmin)
+        log_fmax = np.log(cfg.fmax)
 
-        image_log_frequencies = np.linspace(
-            log_fmin,
-            log_fmax,
-            source_height
-        )
+        image_log_frequencies = np.linspace(log_fmin, log_fmax, source_height)
 
-        target_log_frequencies = np.log(
-            np.maximum(target_freqs, FMIN)
-        )
+        target_log_frequencies = np.log(np.maximum(target_freqs, cfg.fmin))
 
         for column in range(width):
             target[valid, column] = np.interp(
@@ -331,104 +447,122 @@ def apply_frequency_mapping(pixels, frequencies):
                 image_log_frequencies,
                 pixels[:, column],
                 left=0.0,
-                right=0.0
+                right=0.0,
             )
 
     return target
 
 
-def image_to_magnitude(pixels):
+def shape_magnitude(mapped: np.ndarray, cfg: Config) -> np.ndarray:
+    """
+    Convert frequency-mapped values (0..1) into a linear-amplitude
+    magnitude spectrogram using a dB dynamic range.
+    """
+
+    # Optional spectrogram-domain smoothing.
+    if cfg.spectrum_blur_time > 0 or cfg.spectrum_blur_freq > 0:
+        mapped = gaussian_filter(mapped, sigma=(cfg.spectrum_blur_freq, cfg.spectrum_blur_time))
+
+    mapped = np.clip(mapped, 0.0, 1.0)
+
+    mapped = np.maximum(mapped - cfg.noise_floor, 0.0)
+    mapped /= 1.0 - cfg.noise_floor
+
+    mapped = mapped**cfg.curve
+
+    # Map:
+    # pixel = 1.0 -> 0 dB
+    # pixel = 0.0 -> -DYNAMIC dB
+    db = -cfg.dynamic + mapped * cfg.dynamic
+
+    return librosa.db_to_amplitude(db, ref=1.0)
+
+
+def image_to_magnitude(pixels: np.ndarray, cfg: Config):
     """
     Convert normalized image values into a linear-amplitude
     magnitude spectrogram using a dB dynamic range.
     """
 
-    frequencies = build_frequency_axis()
-
-    mapped = apply_frequency_mapping(
-        pixels,
-        frequencies
-    )
-
-    # Optional spectrogram-domain smoothing.
-    if SPECTRUM_BLUR_TIME > 0 or SPECTRUM_BLUR_FREQ > 0:
-        mapped = gaussian_filter(
-            mapped,
-            sigma=(
-                SPECTRUM_BLUR_FREQ,
-                SPECTRUM_BLUR_TIME
-            )
-        )
-
-    mapped = np.clip(mapped, 0.0, 1.0)
-
-    threshold = 0.15
-    mapped = np.maximum(mapped - threshold, 0.0)
-    mapped /= (1.0 - threshold)
-
-    mapped = mapped ** 1.5
-
-    # Map:
-    # pixel = 1.0 -> 0 dB
-    # pixel = 0.0 -> -DYNAMIC dB
-    db = -DYNAMIC + mapped * DYNAMIC
-
-    magnitude = librosa.db_to_amplitude(
-        db,
-        ref=1.0
-    )
-
-    return magnitude, frequencies
+    frequencies = build_frequency_axis(cfg)
+    mapped = apply_frequency_mapping(pixels, frequencies, cfg)
+    return shape_magnitude(mapped, cfg), frequencies
 
 
-def reconstruct_audio(magnitude):
-    """Reconstruct audio from magnitude using Griffin-Lim."""
+def griffin_lim(magnitude: np.ndarray, cfg: Config) -> np.ndarray:
+    """Estimate a phase with Griffin-Lim and return the raw (unnormalized) audio."""
 
-    audio = librosa.griffinlim(
+    return librosa.griffinlim(
         magnitude,
-        n_iter=GRIFFIN_LIM_ITERATIONS,
-        hop_length=HOP_LENGTH,
-        win_length=N_FFT,
-        n_fft=N_FFT,
+        n_iter=cfg.griffin_lim_iterations,
+        hop_length=cfg.hop_length,
+        win_length=cfg.n_fft,
+        n_fft=cfg.n_fft,
         window="hann",
         center=True,
-        momentum=GRIFFIN_LIM_MOMENTUM,
+        momentum=cfg.griffin_lim_momentum,
         init="random",
-        random_state=RANDOM_SEED
+        random_state=cfg.random_seed,
     )
 
-    # Normalize.
+
+def normalize_audio(audio: np.ndarray, cfg: Config) -> np.ndarray:
+    """Peak-normalize and apply OUTPUT_GAIN."""
+
     peak = np.max(np.abs(audio))
 
     if peak > 0:
         audio = audio / peak
 
-    audio *= OUTPUT_GAIN
+    audio *= cfg.output_gain
 
     return audio
 
 
-def save_spectrogram(magnitude, frequencies):
+def reconstruct_audio(magnitude: np.ndarray, cfg: Config) -> np.ndarray:
+    """Reconstruct audio from magnitude using Griffin-Lim."""
+
+    return normalize_audio(griffin_lim(magnitude, cfg), cfg)
+
+
+def render(cfg: Config) -> RenderResult:
+    """Run the whole pipeline and keep every intermediate stage."""
+
+    validate_config(cfg)
+
+    resized = load_resized_image(cfg)
+    pixels = process_image(resized, cfg)
+    frequencies = build_frequency_axis(cfg)
+    mapped = apply_frequency_mapping(pixels, frequencies, cfg)
+    magnitude = shape_magnitude(mapped, cfg)
+    raw_audio = griffin_lim(magnitude, cfg)
+    audio = normalize_audio(raw_audio.copy(), cfg)
+
+    return RenderResult(
+        resized=np.asarray(resized),
+        pixels=pixels,
+        frequencies=frequencies,
+        mapped=mapped,
+        magnitude=magnitude,
+        raw_audio=raw_audio,
+        audio=audio,
+    )
+
+
+def save_spectrogram(magnitude: np.ndarray, frequencies: np.ndarray, cfg: Config):
     """
     Save a visualization of the generated magnitude spectrogram.
     """
 
-    if not SAVE_VISUALIZATION:
+    if not cfg.save_visualization:
         return
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    cfg.output_dir.mkdir(parents=True, exist_ok=True)
 
     # Convert to dB for visualization.
-    magnitude_db = librosa.amplitude_to_db(
-        magnitude,
-        ref=np.max(magnitude)
-    )
+    magnitude_db = librosa.amplitude_to_db(magnitude, ref=np.max(magnitude))
 
-    duration = (
-        magnitude.shape[1] *
-        HOP_LENGTH /
-        SAMPLE_RATE
-    )
+    duration = magnitude.shape[1] * cfg.hop_length / cfg.sample_rate
 
     fig, ax = plt.subplots(figsize=(12, 7))
 
@@ -436,128 +570,104 @@ def save_spectrogram(magnitude, frequencies):
         magnitude_db,
         origin="lower",
         aspect="auto",
-        extent=[
-            0,
-            duration,
-            0,
-            SAMPLE_RATE / 2
-        ],
+        extent=[0, duration, 0, cfg.sample_rate / 2],
         cmap="magma",
-        vmin=-DYNAMIC,
-        vmax=0
+        vmin=-cfg.dynamic,
+        vmax=0,
     )
 
     # Display frequency axis logarithmically.
     ax.set_yscale("log")
-    ax.set_ylim(FMIN, FMAX)
+    ax.set_ylim(cfg.fmin, cfg.fmax)
 
-    tick_candidates = np.array([
-        20, 30, 40, 50, 60, 70, 80, 90,
-        100, 150, 200, 250, 300, 400, 500, 600, 700, 800,
-        1000, 1500, 2000, 2500, 3000, 4000, 5000,
-        6000, 7000, 8000, 10000, 12000, 15000, 20000
-    ])
-
-    freq_ticks = tick_candidates[
-        (tick_candidates >= FMIN) &
-        (tick_candidates <= FMAX)
+    tick_candidates = np.array(
+        [
+            20, 30, 40, 50, 60, 70, 80, 90,
+            100, 150, 200, 250, 300, 400, 500, 600, 700, 800,
+            1000, 1500, 2000, 2500, 3000, 4000, 5000,
+            6000, 7000, 8000, 10000, 12000, 15000, 20000,
         ]
+    )  # fmt: skip
+
+    freq_ticks = tick_candidates[(tick_candidates >= cfg.fmin) & (tick_candidates <= cfg.fmax)]
 
     ax.yaxis.set_major_locator(FixedLocator(freq_ticks))
-    ax.yaxis.set_major_formatter(
-        FuncFormatter(lambda y, _: f"{int(y):,}".replace(",", ".") + " Hz")
-    )
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{int(y):,}".replace(",", ".") + " Hz"))
 
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Frequency (Hz)")
-    ax.set_title(
-        f"Image-to-Sound Spectrogram — {OUTPUT_NAME}"
-    )
+    ax.set_title(f"Image-to-Sound Spectrogram — {cfg.output_name}")
 
-    fig.colorbar(
-        img,
-        ax=ax,
-        label="Amplitude (dB)"
-    )
+    fig.colorbar(img, ax=ax, label="Amplitude (dB)")
 
     fig.tight_layout()
 
-    fig.savefig(
-        OUTPUT_SPECTROGRAM,
-        dpi=FIGURE_DPI
-    )
+    fig.savefig(cfg.output_spectrogram, dpi=cfg.figure_dpi)
 
     plt.close(fig)
 
 
-def save_audio(audio):
+def save_audio(audio: np.ndarray, cfg: Config):
     """Write the reconstructed audio as WAV."""
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    cfg.output_dir.mkdir(parents=True, exist_ok=True)
 
-    sf.write(
-        OUTPUT_WAV,
-        audio,
-        SAMPLE_RATE,
-        subtype="PCM_24"
-    )
+    sf.write(cfg.output_wav, audio, cfg.sample_rate, subtype="PCM_24")
 
 
 # ============================================================
 # MAIN
 # ============================================================
 
-def main():
 
-    validate_config()
+def main(cfg: Optional[Config] = None):
+    cfg = cfg or default_config()
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    validate_config(cfg)
+
+    cfg.output_dir.mkdir(parents=True, exist_ok=True)
 
     print("=" * 60)
     print("IMAGE-TO-SOUND")
     print("=" * 60)
 
-    print(f"Input image:       {IMAGE_PATH}")
-    print(f"Output WAV:        {OUTPUT_WAV}")
-    print(f"Output spectrum:   {OUTPUT_SPECTROGRAM}")
+    print(f"Input image:       {cfg.image_path}")
+    print(f"Output WAV:        {cfg.output_wav}")
+    print(f"Output spectrum:   {cfg.output_spectrogram}")
     print()
-    print(f"Sample rate:       {SAMPLE_RATE} Hz")
-    print(f"N_FFT:             {N_FFT}")
-    print(f"Hop length:        {HOP_LENGTH}")
-    print(f"Frequency range:   {FMIN} - {FMAX} Hz")
-    print(f"Frequency scale:   {FREQUENCY_SCALE}")
-    print(f"Dynamic range:     {DYNAMIC} dB")
-    print(f"Gamma:             {GAMMA}")
-    print(f"Griffin-Lim:       {GRIFFIN_LIM_ITERATIONS} iterations")
+    print(f"Sample rate:       {cfg.sample_rate} Hz")
+    print(f"N_FFT:             {cfg.n_fft}")
+    print(f"Hop length:        {cfg.hop_length}")
+    print(f"Frequency range:   {cfg.fmin} - {cfg.fmax} Hz")
+    print(f"Frequency scale:   {cfg.frequency_scale}")
+    print(f"Dynamic range:     {cfg.dynamic} dB")
+    print(f"Noise floor/curve: {cfg.noise_floor} / {cfg.curve}")
+    print(f"Gamma:             {cfg.gamma}")
+    print(f"Griffin-Lim:       {cfg.griffin_lim_iterations} iterations")
     print()
 
-    duration = WIDTH * HOP_LENGTH / SAMPLE_RATE
-
-    print(f"Approx. duration:  {duration:.2f} s")
+    print(f"Approx. duration:  {cfg.duration:.2f} s")
     print()
 
     print("1/4 Loading and processing image...")
-    pixels = load_and_process_image()
+    pixels = load_and_process_image(cfg)
 
     print("2/4 Converting image to magnitude spectrogram...")
-    magnitude, frequencies = image_to_magnitude(pixels)
+    magnitude, frequencies = image_to_magnitude(pixels, cfg)
 
     print("3/4 Reconstructing audio with Griffin-Lim...")
-    audio = reconstruct_audio(magnitude)
+    audio = reconstruct_audio(magnitude, cfg)
 
     print("4/4 Saving files...")
-    save_audio(audio)
-    save_spectrogram(magnitude, frequencies)
+    save_audio(audio, cfg)
+    save_spectrogram(magnitude, frequencies, cfg)
 
     print()
     print("Done.")
-    print(f"WAV: {OUTPUT_WAV.resolve()}")
+    print(f"WAV: {cfg.output_wav.resolve()}")
 
-    if SAVE_VISUALIZATION:
-        print(
-            f"Spectrogram: "
-            f"{OUTPUT_SPECTROGRAM.resolve()}"
-        )
+    if cfg.save_visualization:
+        print(f"Spectrogram: {cfg.output_spectrogram.resolve()}")
 
 
 if __name__ == "__main__":

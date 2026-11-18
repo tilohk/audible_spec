@@ -98,6 +98,6 @@ Later options (from the README's roadmap): stereo/panning from image columns, Me
 ---
 
 ## Verification
-- **Phase 1–2:** C++ unit tests match the Python fixtures (pixels and magnitude within tolerance; GL spectral convergence ≤ Python's). Run `render_cli` on `data/images/IMG_2198.HEIC` and A/B it against `data/output/IMG_2198.wav` by ear and by the spectrogram PNG.
+- **Phase 1–2:** C++ unit tests match the Python fixtures (pixels and magnitude within tolerance; GL spectral convergence ≤ Python's). Run `render_cli` on `reference/test_images/scene_portrait.heic` and A/B it against the WAV `main.py` renders with the same settings, by ear and by the spectrogram PNG.
 - **Phase 3+:** Run the Standalone build for quick tests, then load VST3 and AU in Ableton: play MIDI, automate real-time params, render while notes play (no glitches), save and reopen the project (the sound is restored without re-rendering), drag the WAV to an audio track.
 - **Release:** `pluginval --strictness-level 5` and `auval -v aumu ....` pass.

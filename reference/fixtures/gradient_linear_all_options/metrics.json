@@ -1,0 +1,47 @@
+{
+  "shapes": {
+    "resized": [
+      513,
+      256
+    ],
+    "pixels": [
+      513,
+      256
+    ],
+    "frequencies": [
+      513
+    ],
+    "mapped": [
+      513,
+      256
+    ],
+    "magnitude": [
+      513,
+      256
+    ],
+    "raw_audio": [
+      32640
+    ],
+    "audio": [
+      32640
+    ]
+  },
+  "dtypes": {
+    "resized": "uint8",
+    "pixels": "float32",
+    "frequencies": "float64",
+    "mapped": "float32",
+    "magnitude": "float32",
+    "raw_audio": "float32",
+    "audio": "float32"
+  },
+  "griffin_lim_spectral_convergence": 0.1957135647535324,
+  "duration_seconds": 0.7430385487528345,
+  "versions": {
+    "python": "3.9.6",
+    "numpy": "2.0.2",
+    "librosa": "0.11.0",
+    "scipy": "1.13.1",
+    "pillow": "11.3.0"
+  }
+}

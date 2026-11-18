@@ -7,6 +7,10 @@ __pycache__/
 plugin/build/
 build/
 
+# Personal input images: never commit them.
+# Test images are generated into reference/test_images/ instead.
+data/images/
+
 # Generated audio / Ableton analysis files
 data/output/
 *.asd
