@@ -8,7 +8,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
-// Image To Sound editor (layout agreed in phase 5): header, image preview + spectrogram,
+// audible_spec editor (layout agreed in phase 5): header, image preview + spectrogram,
 // render settings with Render/Cancel, playback controls with drag-out.
 class ImageToSoundEditor final : public juce::AudioProcessorEditor,
                                  public juce::FileDragAndDropTarget,
@@ -52,8 +52,9 @@ private:
     ImageToSoundProcessor& owner;
     its::ui::LookAndFeel lookAndFeel; // declared first: outlives every child component
 
-    juce::Label title{{}, "Image to sound"}, imageLabel;
-    juce::TextButton loadButton{"Load image..."};
+    juce::Label title{{}, "audible_spec"}, imageLabel;
+    juce::TextButton loadButton{"Load image"};
+    juce::Random random;                   // seeded from the clock: every click gives new settings
     std::vector<juce::String> presetTexts; // render presets; index = combo item id - 1
     its::ui::ImagePreview preview;
     its::ui::SpectrogramView spectrogram;

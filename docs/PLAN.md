@@ -26,6 +26,8 @@ The Python script stays as the **reference implementation**: the C++ port is che
 | Spectral smoothing | Spectrum blur time / freq |
 | Reconstruction | Griffin-Lim iterations, Momentum, Seed |
 
+Hop length and spectral smoothing (time/freq) are not shown in the UI since the 6c revision: they keep their defaults (or a preset's values).
+
 Gamma, contrast, blur, invert and flip are cheap, so the **processed-image preview updates live** while you turn them. Only the audio waits for Render. The UI also shows an estimated render time and duration.
 
 **Real-time parameters** (automatable in Ableton, no re-render):
@@ -34,9 +36,9 @@ Output gain · ADSR · Transpose (±24 semitones) / key-tracking on/off · Fine 
 ## UI layout (as built, revised after phase 6)
 ```
 ┌───────────────────────────────────────────────────────────────────────┐
-│ [Load image...]  <image name>                          Image to sound  │
+│ [Load image]  <image name>                               audible_spec  │
 ├──────────────── RENDER (bar always visible) ───────────────────────────┤
-│ [View/Hide render settings]  Render preset [▾]  2.0 s, ~4 s [Cancel][Render] │
+│ [View/Hide render settings] Render preset [▾] [dice] 2.0 s, ~4 s [Cancel][Render] │
 │ ▓▓▓▓▓▓▓░░░░░░░░ progress (full width; shows the error if a render fails) │
 │ (foldable) Image | Frequency | Time and dynamics | Reconstruction       │
 ├────────────────────────────────────────────────────────────────────────┤
@@ -50,6 +52,7 @@ Output gain · ADSR · Transpose (±24 semitones) / key-tracking on/off · Fine 
 │                                        │                         │ [Drag] │
 └────────────────────────────────────────────────────────────────────────┘
 ```
+The dice randomizes the render settings within useful ranges (length, iterations, momentum and peak level stay).
 The render settings start folded; unfolding grows the window by their height, and the state is saved in the project.
 Sample start never passes the end (markers and knobs); dragging inside the region moves it without changing its length. The loop markers are fractions of the region, so the loop always stays inside it and moves with it.
 

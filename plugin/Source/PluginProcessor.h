@@ -6,7 +6,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_utils/juce_audio_utils.h>
 
-// The Image To Sound instrument: renders an image to a sound in the background and
+// The audible_spec instrument: renders an image to a sound in the background and
 // plays it as a sampler from MIDI.
 //
 // Render settings are not host parameters (automating them makes no sense); they live
@@ -64,6 +64,10 @@ public:
     // Resets the render settings to defaults, applies the preset, and says to press Render.
     void applyPreset (const juce::String& presetText);
     juce::String getPresetName(); // stored with the render settings (saved in the project)
+
+    // Sets the visible render settings (except length and the reconstruction quality) to random
+    // values within musically useful ranges and clears the preset name. Press Render to hear them.
+    void randomizeRenderSettings (juce::Random& random);
 
     // Whether the editor shows the render settings (UI state, saved in the project).
     bool isRenderPanelOpen() const { return apvts.state.getProperty ("render_panel_open", false); }

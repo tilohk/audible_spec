@@ -35,7 +35,7 @@ void apply (const Parsed& preset, juce::ValueTree& renderSettings);
 juce::String serialize (const juce::ValueTree& renderSettings, const juce::String& name);
 
 std::vector<Preset> builtIns(); // presets/*.txt embedded in the plugin
-juce::File userFolder();        // ~/Library/Application Support/Image To Sound/Presets
+juce::File userFolder();        // ~/Library/Application Support/audible_spec/Presets
 std::vector<Preset> userPresets();
 bool saveUserPreset (const juce::ValueTree& renderSettings, const juce::String& name, juce::String& error);
 } // namespace its::presets

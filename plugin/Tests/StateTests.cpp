@@ -233,6 +233,32 @@ public:
                           juce::String ("24 dB"));
         }
 
+        beginTest ("random render settings are always valid and keep length and quality");
+        {
+            auto p = makeProcessor();
+            p->cancelRender();
+            p->applyPreset ("# Clean\nDURATION = 1.5\n");
+            const auto before = p->getRenderParams();
+            juce::Random random (1234);
+            bool allValid = true, changed = false;
+            for (int i = 0; i < 200; ++i)
+            {
+                p->randomizeRenderSettings (random);
+                const auto params = p->getRenderParams();
+                const auto problem = params.validate();
+                if (problem.isNotEmpty())
+                    logMessage ("  invalid: " + problem);
+                allValid = allValid && problem.isEmpty();
+                changed = changed || !juce::exactlyEqual (params.gamma, before.gamma);
+                expectEquals (params.width, before.width);
+                expectEquals (params.griffinLimIterations, before.griffinLimIterations);
+                expect (params.fMax >= params.fMin * 8.0 || params.fMax >= 2000.0);
+            }
+            expect (allValid, "every random setting validates");
+            expect (changed, "settings actually change");
+            expect (p->getPresetName().isEmpty(), "no preset name after randomizing");
+        }
+
         beginTest ("saving while a render runs is safe and keeps the previous sound");
         {
             auto p = makeProcessor();

@@ -10,8 +10,9 @@ namespace colours = its::ui::colours;
 ImageToSoundEditor::ImageToSoundEditor (ImageToSoundProcessor& p)
     : juce::AudioProcessorEditor (p), owner (p), spectrogram (p.apvts), playbackPanel (p.apvts)
 {
-    title.setFont (juce::FontOptions (17.0f, juce::Font::bold));
-    title.setColour (juce::Label::textColourId, colours::text);
+    // Avenir Next ships with macOS; JUCE falls back to the default font if it is missing.
+    title.setFont (juce::FontOptions().withName ("Avenir Next").withStyle ("Demi Bold").withHeight (25.0f));
+    title.setColour (juce::Label::textColourId, colours::caption);
     title.setJustificationType (juce::Justification::centredRight);
     imageLabel.setFont (juce::FontOptions (13.0f));
     imageLabel.setColour (juce::Label::textColourId, colours::textSecondary);
@@ -27,6 +28,11 @@ ImageToSoundEditor::ImageToSoundEditor (ImageToSoundProcessor& p)
     preview.onClick = [this] { chooseImage(); };
     renderPanel.onRender = [this] { owner.startRender(); };
     renderPanel.onCancel = [this] { owner.cancelRender(); };
+    renderPanel.onRandomize = [this]
+    {
+        owner.randomizeRenderSettings (random);
+        renderPanel.getPresetBox().setSelectedId (0, juce::dontSendNotification); // no preset any more
+    };
     playbackPanel.onDragOut = [this] { return writeDragFile(); };
 
     // Set after all children exist: this rebuilds their value boxes etc. with the theme.
@@ -160,12 +166,12 @@ juce::File ImageToSoundEditor::writeDragFile()
     if (rendered.audio == nullptr || rendered.audio->samples.empty())
         return {};
 
-    auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("Image To Sound");
+    auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("audible_spec");
     folder.createDirectory();
     const auto base =
         juce::File::createLegalFileName (owner.getImageName().upToLastOccurrenceOf (".", false, false));
     auto file =
-        folder.getChildFile ((base.isEmpty() ? juce::String ("image") : base) + " - image to sound.wav");
+        folder.getChildFile ((base.isEmpty() ? juce::String ("image") : base) + " - audible_spec.wav");
     file.deleteFile();
 
     std::unique_ptr<juce::OutputStream> stream = std::make_unique<juce::FileOutputStream> (file);
@@ -199,8 +205,7 @@ void ImageToSoundEditor::loadImage (const juce::File& file)
 {
     juce::String error;
     if (!owner.loadImageFile (file, error))
-        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Image to sound",
-                                                error);
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "audible_spec", error);
 }
 
 bool ImageToSoundEditor::isInterestedInFileDrag (const juce::StringArray& files)

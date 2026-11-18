@@ -139,7 +139,7 @@ add_test(NAME plugin_tests COMMAND PluginTests)
 # The plugin
 # ------------------------------------------------------------------
 juce_add_plugin(ImageToSound
-    PRODUCT_NAME "Image To Sound"
+    PRODUCT_NAME "audible_spec"     # shown in the DAW; codes below keep it the same plugin
     COMPANY_NAME "Tilo Hauk"
     BUNDLE_ID com.tilohauk.imagetosound
     PLUGIN_MANUFACTURER_CODE Tlhk   # 4 chars, at least one upper case

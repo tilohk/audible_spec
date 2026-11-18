@@ -1,4 +1,4 @@
-# Image-to-Sound — JUCE instrument plugin
+# audible_spec (Image-to-Sound) — JUCE instrument plugin
 
 Turns an image into a spectrogram and resynthesises it (Griffin-Lim) into a sample that is played from MIDI inside a DAW (Ableton Live 12, VST3 + AU, macOS).
 
@@ -36,12 +36,12 @@ ctest --test-dir plugin/build --output-on-failure   # C++ DSP vs Python fixtures
 auval -v aumu I2Sd Tlhk             # Apple AU validation
 # Ableton keeps a plugin's code in memory once it has been loaded: after rebuilding,
 # quit and restart Live (a plugin rescan is not enough). Check with:
-pgrep -x Live && lsof -p "$(pgrep -x Live)" | grep "Image To Sound"
+pgrep -x Live && lsof -p "$(pgrep -x Live)" | grep "audible_spec"
 # Release build for timing; reuses the JUCE checkout of the debug build
 cmake -S plugin -B plugin/build-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_SOURCE_DIR_JUCE=$PWD/plugin/build/_deps/juce-src
 cmake --build plugin/build-release --target RenderCli
 plugin/build-release/RenderCli_artefacts/Release/render_cli reference/test_images/scene_portrait.heic data/output/cpp.wav [--set n_fft=2048 ...]
-open "plugin/build/ImageToSound_artefacts/Debug/Standalone/Image To Sound.app"
+open "plugin/build/ImageToSound_artefacts/Debug/Standalone/audible_spec.app"
 venv/bin/python -m pip install -r requirements-dev.txt   # ruff + pytest
 # Python reference (always use the venv)
 venv/bin/python main.py
