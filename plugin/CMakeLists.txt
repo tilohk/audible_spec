@@ -23,14 +23,19 @@ enable_testing()
 # target (plugin, tests, CLI) compiles it together with its own copy of
 # the JUCE modules; that avoids duplicate JUCE symbols.
 # ------------------------------------------------------------------
-add_library(ImageToSoundCore INTERFACE)
-target_sources(ImageToSoundCore INTERFACE
+set(ITS_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/dsp/RenderParams.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/dsp/ImageProcessor.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/dsp/Spectrogram.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/dsp/GriffinLim.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/dsp/Renderer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/image/ImageDecoder.cpp)
+# Rendering is far too slow unoptimised, so the DSP core is always built with -O2
+# (Debug builds keep their debug info).
+set_source_files_properties(${ITS_CORE_SOURCES} PROPERTIES COMPILE_OPTIONS "-O2")
+
+add_library(ImageToSoundCore INTERFACE)
+target_sources(ImageToSoundCore INTERFACE ${ITS_CORE_SOURCES})
 target_include_directories(ImageToSoundCore INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/Source)
 target_link_libraries(ImageToSoundCore INTERFACE
     juce::juce_core
@@ -43,17 +48,26 @@ set(ITS_CONSOLE_DEFINITIONS
     JUCE_USE_CURL=0
     JUCE_STANDALONE_APPLICATION=1)
 
-# Tests: compare every DSP stage with the Python fixtures (run with ctest)
+# Playback engine + parameters: shared by the plugin and the tests
+set(ITS_AUDIO_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/audio/SamplerEngine.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Parameters.cpp)
+
+# Tests: DSP stages vs the Python fixtures, sampler engine, parameters (run with ctest)
 juce_add_console_app(DspTests PRODUCT_NAME DspTests)
 target_sources(DspTests PRIVATE
+    ${ITS_AUDIO_SOURCES}
     Tests/TestMain.cpp
+    Tests/AllocationCounter.cpp
     Tests/Npy.cpp
-    Tests/DspTests.cpp)
+    Tests/DspTests.cpp
+    Tests/SamplerTests.cpp)
 target_compile_definitions(DspTests PRIVATE
     ${ITS_CONSOLE_DEFINITIONS}
     ITS_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/..")
 target_link_libraries(DspTests PRIVATE
     ImageToSoundCore
+    juce::juce_audio_processors
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags)
 add_test(NAME dsp_tests COMMAND DspTests)
@@ -90,7 +104,13 @@ juce_add_plugin(ImageToSound
     COPY_PLUGIN_AFTER_BUILD TRUE)   # installs into ~/Library/Audio/Plug-Ins for Ableton
 
 target_sources(ImageToSound PRIVATE
-    Source/PluginProcessor.cpp)
+    ${ITS_AUDIO_SOURCES}
+    Source/PluginProcessor.cpp
+    Source/RenderJob.cpp)
+
+# Default image shown/played until the user loads one (generated test image).
+juce_add_binary_data(ImageToSoundAssets SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/../reference/test_images/scene_portrait.heic)
 
 target_compile_definitions(ImageToSound PUBLIC
     JUCE_WEB_BROWSER=0
@@ -99,6 +119,8 @@ target_compile_definitions(ImageToSound PUBLIC
 
 target_link_libraries(ImageToSound
     PRIVATE
+        ImageToSoundCore
+        ImageToSoundAssets
         juce::juce_audio_utils
         juce::juce_dsp
     PUBLIC

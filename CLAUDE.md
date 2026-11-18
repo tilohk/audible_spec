@@ -34,6 +34,9 @@ cmake -S plugin -B plugin/build -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build plugin/build          # also installs VST3 + AU into ~/Library/Audio/Plug-Ins
 ctest --test-dir plugin/build --output-on-failure   # C++ DSP vs Python fixtures
 auval -v aumu I2Sd Tlhk             # Apple AU validation
+# Ableton keeps a plugin's code in memory once it has been loaded: after rebuilding,
+# quit and restart Live (a plugin rescan is not enough). Check with:
+pgrep -x Live && lsof -p "$(pgrep -x Live)" | grep "Image To Sound"
 # Release build for timing; reuses the JUCE checkout of the debug build
 cmake -S plugin -B plugin/build-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_SOURCE_DIR_JUCE=$PWD/plugin/build/_deps/juce-src
 cmake --build plugin/build-release --target RenderCli

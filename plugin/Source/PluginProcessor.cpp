@@ -1,102 +1,51 @@
 #include "PluginProcessor.h"
 
-namespace
-{
-struct SineSound final : juce::SynthesiserSound
-{
-    bool appliesToNote (int) override { return true; }
-    bool appliesToChannel (int) override { return true; }
-};
+#include "BinaryData.h"
+#include "Parameters.h"
 
-class SineVoice final : public juce::SynthesiserVoice
-{
-public:
-    bool canPlaySound (juce::SynthesiserSound* sound) override
-    {
-        return dynamic_cast<SineSound*> (sound) != nullptr;
-    }
-
-    // RT-SAFE BEGIN
-    void startNote (int midiNote, float velocity, juce::SynthesiserSound*, int) override
-    {
-        level = velocity * 0.25f;
-        angle = 0.0;
-        const auto hz = juce::MidiMessage::getMidiNoteInHertz (midiNote);
-        delta = hz / getSampleRate() * juce::MathConstants<double>::twoPi;
-
-        adsr.setSampleRate (getSampleRate());
-        adsr.setParameters ({0.01f, 0.1f, 0.8f, 0.3f});
-        adsr.noteOn();
-    }
-
-    void stopNote (float, bool allowTailOff) override
-    {
-        if (allowTailOff)
-            adsr.noteOff();
-        else
-        {
-            adsr.reset();
-            clearCurrentNote();
-        }
-    }
-
-    void pitchWheelMoved (int) override {}
-    void controllerMoved (int, int) override {}
-
-    void renderNextBlock (juce::AudioBuffer<float>& output, int startSample, int numSamples) override
-    {
-        if (!isVoiceActive())
-            return;
-
-        for (int i = 0; i < numSamples; ++i)
-        {
-            const auto sample = static_cast<float> (std::sin (angle)) * level * adsr.getNextSample();
-            for (int ch = 0; ch < output.getNumChannels(); ++ch)
-                output.addSample (ch, startSample + i, sample);
-
-            angle += delta;
-
-            if (!adsr.isActive())
-            {
-                clearCurrentNote();
-                break;
-            }
-        }
-    }
-    // RT-SAFE END
-
-private:
-    juce::ADSR adsr;
-    double angle = 0.0, delta = 0.0;
-    float level = 0.0f;
-};
-} // namespace
+namespace param = its::param;
 
 ImageToSoundProcessor::ImageToSoundProcessor()
     : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
+      apvts (*this, nullptr, "PARAMETERS", param::createLayout()),
+      renderJob (
+          [this] (std::unique_ptr<its::SampleBuffer> sample, const juce::String& error)
+          {
+              // Render thread: the only producer for the engine's hand-over queue.
+              jassert (error.isEmpty());
+              juce::ignoreUnused (error);
+              if (sample != nullptr)
+                  engine.setSample (std::move (sample));
+          })
 {
-    gainDbParam = apvts.getRawParameterValue ("gain");
+    auto raw = [this] (const char* id)
+    {
+        auto* value = apvts.getRawParameterValue (id);
+        jassert (value != nullptr);
+        return value;
+    };
+    p = {raw (param::gain),        raw (param::attack),         raw (param::decay),    raw (param::sustain),
+         raw (param::release),     raw (param::rootNote),       raw (param::keyTrack), raw (param::fineTune),
+         raw (param::sampleStart), raw (param::sampleEnd),      raw (param::loopOn),   raw (param::loopStart),
+         raw (param::loopEnd),     raw (param::loopCrossfade),  raw (param::reverse),  raw (param::lowpass),
+         raw (param::highpass),    raw (param::velocityAmount), raw (param::playMode)};
 
-    for (int i = 0; i < 8; ++i)
-        synth.addVoice (new SineVoice());
-    synth.addSound (new SineSound());
+    // Until phase 4 adds image loading: render the built-in test image with the default settings.
+    renderJob.start (
+        juce::MemoryBlock (BinaryData::scene_portrait_heic, (size_t)BinaryData::scene_portrait_heicSize),
+        its::RenderParams{});
+    startTimerHz (5);
 }
 
-juce::AudioProcessorValueTreeState::ParameterLayout ImageToSoundProcessor::createParameterLayout()
+ImageToSoundProcessor::~ImageToSoundProcessor()
 {
-    juce::AudioProcessorValueTreeState::ParameterLayout layout;
-    layout.add (std::make_unique<juce::AudioParameterFloat> (
-        juce::ParameterID{"gain", 1}, "Output Gain", juce::NormalisableRange<float> (-60.0f, 6.0f, 0.1f),
-        -6.0f, juce::AudioParameterFloatAttributes().withLabel ("dB")));
-    return layout;
+    stopTimer();
+    renderJob.cancel();
 }
 
-void ImageToSoundProcessor::prepareToPlay (double sampleRate, int)
+void ImageToSoundProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    synth.setCurrentPlaybackSampleRate (sampleRate);
-    gain.reset (sampleRate, 0.02);
-    gain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (gainDbParam->load()));
+    engine.prepare (sampleRate, samplesPerBlock);
 }
 
 bool ImageToSoundProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -105,20 +54,48 @@ bool ImageToSoundProcessor::isBusesLayoutSupported (const BusesLayout& layouts) 
     return out == juce::AudioChannelSet::mono() || out == juce::AudioChannelSet::stereo();
 }
 
+double ImageToSoundProcessor::getTailLengthSeconds() const
+{
+    return p.release->load() / 1000.0;
+}
+
 // RT-SAFE BEGIN
+its::PlaybackSettings ImageToSoundProcessor::readSettings() const noexcept
+{
+    its::PlaybackSettings s;
+    s.gainDb = p.gain->load();
+    s.attackMs = p.attack->load();
+    s.decayMs = p.decay->load();
+    s.sustain = p.sustain->load();
+    s.releaseMs = p.release->load();
+    s.rootNote = juce::roundToInt (p.rootNote->load());
+    s.keyTrack = p.keyTrack->load() > 0.5f;
+    s.fineTuneCents = p.fineTune->load();
+    s.start = p.sampleStart->load();
+    s.end = p.sampleEnd->load();
+    s.loop = p.loopOn->load() > 0.5f;
+    s.loopStart = p.loopStart->load();
+    s.loopEnd = p.loopEnd->load();
+    s.loopCrossfadeMs = p.loopCrossfade->load();
+    s.reverse = p.reverse->load() > 0.5f;
+    s.lowpassHz = p.lowpass->load();
+    s.highpassHz = p.highpass->load();
+    s.velocityAmount = p.velocityAmount->load();
+    s.mono = juce::roundToInt (p.playMode->load()) == 0;
+    return s;
+}
+
 void ImageToSoundProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
-    buffer.clear();
-
-    // Note: juce::Synthesiser takes an internal lock here. Acceptable for the
-    // phase-0 test synth; the phase-3 sampler uses its own lock-free voices.
-    synth.renderNextBlock (buffer, midi, 0, buffer.getNumSamples());
-
-    gain.setTargetValue (juce::Decibels::decibelsToGain (gainDbParam->load()));
-    gain.applyGain (buffer, buffer.getNumSamples());
+    engine.process (buffer, midi, readSettings());
 }
 // RT-SAFE END
+
+void ImageToSoundProcessor::timerCallback()
+{
+    engine.collectGarbage();
+}
 
 juce::AudioProcessorEditor* ImageToSoundProcessor::createEditor()
 {
