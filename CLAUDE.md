@@ -32,8 +32,12 @@ At the end of each phase: report the gate items one by one, with evidence (comma
 # configure once (Release for speed tests, Debug for development)
 cmake -S plugin -B plugin/build -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build plugin/build          # also installs VST3 + AU into ~/Library/Audio/Plug-Ins
-ctest --test-dir plugin/build --output-on-failure
+ctest --test-dir plugin/build --output-on-failure   # C++ DSP vs Python fixtures
 auval -v aumu I2Sd Tlhk             # Apple AU validation
+# Release build for timing; reuses the JUCE checkout of the debug build
+cmake -S plugin -B plugin/build-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_SOURCE_DIR_JUCE=$PWD/plugin/build/_deps/juce-src
+cmake --build plugin/build-release --target RenderCli
+plugin/build-release/RenderCli_artefacts/Release/render_cli reference/test_images/scene_portrait.heic data/output/cpp.wav [--set n_fft=2048 ...]
 open "plugin/build/ImageToSound_artefacts/Debug/Standalone/Image To Sound.app"
 venv/bin/python -m pip install -r requirements-dev.txt   # ruff + pytest
 # Python reference (always use the venv)

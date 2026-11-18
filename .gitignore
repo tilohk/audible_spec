@@ -5,6 +5,7 @@ __pycache__/
 
 # Build output
 plugin/build/
+plugin/build-*/
 build/
 
 # Personal input images: never commit them.

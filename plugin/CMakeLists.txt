@@ -16,6 +16,63 @@ FetchContent_Declare(
     GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(juce)
 
+enable_testing()
+
+# ------------------------------------------------------------------
+# DSP core: the C++ port of main.py. An INTERFACE library, so every
+# target (plugin, tests, CLI) compiles it together with its own copy of
+# the JUCE modules; that avoids duplicate JUCE symbols.
+# ------------------------------------------------------------------
+add_library(ImageToSoundCore INTERFACE)
+target_sources(ImageToSoundCore INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/dsp/RenderParams.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/dsp/ImageProcessor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/dsp/Spectrogram.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/dsp/GriffinLim.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/dsp/Renderer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/image/ImageDecoder.cpp)
+target_include_directories(ImageToSoundCore INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/Source)
+target_link_libraries(ImageToSoundCore INTERFACE
+    juce::juce_core
+    juce::juce_dsp
+    "-framework ImageIO"
+    "-framework CoreGraphics")
+
+set(ITS_CONSOLE_DEFINITIONS
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_STANDALONE_APPLICATION=1)
+
+# Tests: compare every DSP stage with the Python fixtures (run with ctest)
+juce_add_console_app(DspTests PRODUCT_NAME DspTests)
+target_sources(DspTests PRIVATE
+    Tests/TestMain.cpp
+    Tests/Npy.cpp
+    Tests/DspTests.cpp)
+target_compile_definitions(DspTests PRIVATE
+    ${ITS_CONSOLE_DEFINITIONS}
+    ITS_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/..")
+target_link_libraries(DspTests PRIVATE
+    ImageToSoundCore
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags)
+add_test(NAME dsp_tests COMMAND DspTests)
+
+# render_cli: image -> WAV from the command line
+juce_add_console_app(RenderCli PRODUCT_NAME render_cli)
+target_sources(RenderCli PRIVATE Tools/RenderCli.cpp)
+set_target_properties(RenderCli PROPERTIES OUTPUT_NAME render_cli)
+target_compile_definitions(RenderCli PRIVATE ${ITS_CONSOLE_DEFINITIONS})
+target_link_libraries(RenderCli PRIVATE
+    ImageToSoundCore
+    juce::juce_audio_formats
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_lto_flags
+    juce::juce_recommended_warning_flags)
+
+# ------------------------------------------------------------------
+# The plugin
+# ------------------------------------------------------------------
 juce_add_plugin(ImageToSound
     PRODUCT_NAME "Image To Sound"
     COMPANY_NAME "Tilo Hauk"
