@@ -27,11 +27,12 @@ struct PlaybackSettings
     float fineTuneCents = 0.0f;
     float start = 0.0f, end = 1.0f; // fractions of the sample
     bool loop = false;
-    float loopStart = 0.0f, loopEnd = 1.0f; // fractions of the sample
+    float loopStart = 0.0f, loopEnd = 1.0f; // fractions of the start..end region
     float loopCrossfadeMs = 10.0f;
     bool reverse = false;
     float lowpassHz = 20000.0f, highpassHz = 20.0f;
-    float velocityAmount = 1.0f;
+    bool filterSteep = false;    // false: 12 dB/oct, true: 24 dB/oct (both filters)
+    float velocityAmount = 1.0f; // not a plugin parameter (always 1); kept for the engine tests
     bool mono = false;
 };
 
@@ -144,8 +145,9 @@ private:
     std::atomic<float> playhead{-1.0f};
 
     std::vector<float> mix;
-    juce::dsp::StateVariableTPTFilter<float> lowpass, highpass;
-    bool lowpassActive = false, highpassActive = false;
+    // Each filter: two cascaded stages; the second is used only at 24 dB/oct (Butterworth).
+    juce::dsp::StateVariableTPTFilter<float> lowpass, highpass, lowpass2, highpass2;
+    bool lowpassActive = false, highpassActive = false, steep = false;
     juce::SmoothedValue<float> gain;
     juce::ADSR::Parameters adsrParameters;
     int killFadeSamples = 220;

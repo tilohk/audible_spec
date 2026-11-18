@@ -21,11 +21,11 @@ ImageToSoundProcessor::ImageToSoundProcessor()
         jassert (value != nullptr);
         return value;
     };
-    p = {raw (param::gain),        raw (param::attack),         raw (param::decay),    raw (param::sustain),
-         raw (param::release),     raw (param::rootNote),       raw (param::keyTrack), raw (param::fineTune),
-         raw (param::sampleStart), raw (param::sampleEnd),      raw (param::loopOn),   raw (param::loopStart),
-         raw (param::loopEnd),     raw (param::loopCrossfade),  raw (param::reverse),  raw (param::lowpass),
-         raw (param::highpass),    raw (param::velocityAmount), raw (param::playMode)};
+    p = {raw (param::gain),        raw (param::attack),        raw (param::decay),    raw (param::sustain),
+         raw (param::release),     raw (param::transpose),     raw (param::keyTrack), raw (param::fineTune),
+         raw (param::sampleStart), raw (param::sampleEnd),     raw (param::loopOn),   raw (param::loopStart),
+         raw (param::loopEnd),     raw (param::loopCrossfade), raw (param::reverse),  raw (param::lowpass),
+         raw (param::highpass),    raw (param::filterSlope),   raw (param::playMode)};
 
     ensureRenderSettings();
 
@@ -95,7 +95,7 @@ void ImageToSoundProcessor::applyPreset (const juce::String& presetText)
     tree.setProperty ("preset_name", parsed.name, nullptr);
 
     const juce::ScopedLock sl (statusLock);
-    statusMessage = "Preset \"" + parsed.name + "\" loaded. Press Render to hear it.";
+    statusMessage = "Render preset \"" + parsed.name + "\" loaded. Press Render to hear it.";
     if (parsed.problems.size() > 0)
         statusMessage << " (" << parsed.problems.size() << " unknown line(s) skipped)";
     statusIsError = false;
@@ -257,7 +257,7 @@ its::PlaybackSettings ImageToSoundProcessor::readSettings() const noexcept
     s.decayMs = p.decay->load();
     s.sustain = p.sustain->load();
     s.releaseMs = p.release->load();
-    s.rootNote = juce::roundToInt (p.rootNote->load());
+    s.rootNote = 60 - juce::roundToInt (p.transpose->load()); // transpose +n: C3 plays n semitones up
     s.keyTrack = p.keyTrack->load() > 0.5f;
     s.fineTuneCents = p.fineTune->load();
     s.start = p.sampleStart->load();
@@ -269,7 +269,7 @@ its::PlaybackSettings ImageToSoundProcessor::readSettings() const noexcept
     s.reverse = p.reverse->load() > 0.5f;
     s.lowpassHz = p.lowpass->load();
     s.highpassHz = p.highpass->load();
-    s.velocityAmount = p.velocityAmount->load();
+    s.filterSteep = juce::roundToInt (p.filterSlope->load()) == 1;
     s.mono = juce::roundToInt (p.playMode->load()) == 0;
     return s;
 }

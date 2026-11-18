@@ -46,10 +46,12 @@ private:
         start,
         end,
         loopStart,
-        loopEnd
+        loopEnd,
+        region // inside start..end: moves the whole region, keeping its length
     };
     juce::RangedAudioParameter* parameterFor (Marker) const;
-    float valueOf (Marker) const;
+    float valueOf (Marker) const;    // parameter value (loop markers: fraction of the region)
+    float positionOf (Marker) const; // position in the whole sample, 0..1
     Marker markerAt (float x) const;
     juce::Rectangle<float> plotArea() const;
 
@@ -57,6 +59,12 @@ private:
     juce::Image image;
     float playhead = -1.0f;
     juce::String info;
+    void setValue (Marker, float fraction);
+    std::vector<juce::RangedAudioParameter*> parametersMovedBy (Marker) const;
+    float fractionAt (float x) const;
+
     Marker dragging = Marker::none, hovering = Marker::none;
+    std::vector<juce::RangedAudioParameter*> gestureParameters; // begun on mouse down
+    float dragDownFraction = 0.0f, dragStartValues[2]{};        // start, end at mouse down
 };
 } // namespace its::ui

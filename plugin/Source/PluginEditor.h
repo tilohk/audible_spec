@@ -30,7 +30,15 @@ public:
     // Runs one UI refresh immediately (used by the snapshot tool and tests).
     void refreshNow() { timerCallback(); }
 
+    // Folds/unfolds the render settings; the window shrinks/grows by their height.
+    void setRenderPanelOpen (bool open);
+
 private:
+    static constexpr int margin = 14, headerHeight = 30, gap = 12, playbackHeight = 236;
+    static constexpr int minPreviewHeight = 170, defaultPreviewHeight = 230;
+    int fixedHeight() const; // everything except the previews
+    void updateSizeLimits();
+
     void timerCallback() override;
     void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override;
     void chooseImage();
@@ -46,9 +54,7 @@ private:
 
     juce::Label title{{}, "Image to sound"}, imageLabel;
     juce::TextButton loadButton{"Load image..."};
-    juce::Label presetLabel{{}, "Preset"};
-    juce::ComboBox presetBox;
-    std::vector<juce::String> presetTexts; // index = combo item id - 1
+    std::vector<juce::String> presetTexts; // render presets; index = combo item id - 1
     its::ui::ImagePreview preview;
     its::ui::SpectrogramView spectrogram;
     its::ui::RenderPanel renderPanel;
