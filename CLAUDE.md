@@ -30,9 +30,12 @@ At the end of each phase: report the gate items one by one, with evidence (comma
 
 ```bash
 # configure once (Release for speed tests, Debug for development)
-cmake -S plugin -B plugin/build -DCMAKE_BUILD_TYPE=Debug
-cmake --build plugin/build -j
+cmake -S plugin -B plugin/build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+cmake --build plugin/build          # also installs VST3 + AU into ~/Library/Audio/Plug-Ins
 ctest --test-dir plugin/build --output-on-failure
+auval -v aumu I2Sd Tlhk             # Apple AU validation
+open "plugin/build/ImageToSound_artefacts/Debug/Standalone/Image To Sound.app"
+venv/bin/python -m pip install -r requirements-dev.txt   # ruff + pytest
 # Python reference (always use the venv)
 venv/bin/python main.py
 venv/bin/python reference/export_fixtures.py
