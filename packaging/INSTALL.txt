@@ -9,14 +9,27 @@ INSTALL
 
 macOS
 -----
-  VST3:       copy audible_spec.vst3      to ~/Library/Audio/Plug-Ins/VST3/
-  AU:         copy audible_spec.component to ~/Library/Audio/Plug-Ins/Components/
-  Standalone: copy audible_spec.app       to /Applications/
+  Easiest: open Terminal (Applications > Utilities), type "bash " (with a space),
+  drag install-macos.sh from this folder into the window and press Enter.
+  It copies the plug-ins into your user plug-in folders, unblocks them and puts
+  the standalone app into Applications.
 
-  The plug-in is not notarized by Apple. After copying, run this once in Terminal,
-  otherwise macOS may block it:
+  Or install without downloading the zip at all:
+
+    curl -fsSL https://raw.githubusercontent.com/tilohk/audible_spec/main/packaging/install-macos.sh | bash
+
+  By hand:
+    VST3:       copy audible_spec.vst3      to ~/Library/Audio/Plug-Ins/VST3/
+    AU:         copy audible_spec.component to ~/Library/Audio/Plug-Ins/Components/
+    Standalone: copy audible_spec.app       to /Applications/
+  (~/Library is the Library folder in your home folder, not /Library.)
+  The plug-in is not notarized by Apple, so then run this once in Terminal,
+  otherwise macOS blocks it and your DAW may hang while scanning plug-ins:
 
     xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/audible_spec.vst3 ~/Library/Audio/Plug-Ins/Components/audible_spec.component /Applications/audible_spec.app
+
+  Ableton Live: Settings > Plug-Ins, hold Option and click Rescan. Option also
+  retries plug-ins that failed before (e.g. scanned while still blocked).
 
   Universal build: Apple Silicon and Intel, macOS 11 or newer.
 

@@ -15,7 +15,15 @@ image → grayscale → gamma / contrast / blur / invert / flip
 
 ## Download and install
 
-Get the zip for your system from the [latest release](https://github.com/tilohk/audible_spec/releases/latest). Each zip contains `INSTALL.txt` with the exact steps:
+**macOS, one line in Terminal** (downloads the latest release, installs VST3, AU and the app, nothing to unblock):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tilohk/audible_spec/main/packaging/install-macos.sh | bash
+```
+
+Then in Ableton Live: **Settings → Plug-Ins**, hold **Option (⌥)** and click **Rescan**.
+
+**Or download the zip** for your system from the [latest release](https://github.com/tilohk/audible_spec/releases/latest). Each zip contains `INSTALL.txt` with the exact steps; the macOS zip also contains `install-macos.sh` (run it with `bash install-macos.sh` in Terminal). By hand:
 
 | System | Copy | To |
 |---|---|---|
@@ -23,11 +31,13 @@ Get the zip for your system from the [latest release](https://github.com/tilohk/
 | Windows 10/11 (64-bit) | `audible_spec.vst3` | `C:\Program Files\Common Files\VST3\` |
 | Linux (x86-64) | `audible_spec.vst3` / `audible_spec.lv2` | `~/.vst3/` / `~/.lv2/` |
 
-The macOS build is not notarized by Apple. After copying, run this once, otherwise macOS may block the plugin:
+`~/Library` is the Library folder inside your home folder, not the system-wide `/Library`. The macOS build is not notarized by Apple: after copying by hand, run this once, otherwise macOS blocks the plugin and Live may hang while scanning:
 
 ```bash
 xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/audible_spec.vst3 ~/Library/Audio/Plug-Ins/Components/audible_spec.component
 ```
+
+If Live scanned the plugin before it was unblocked, it remembers it as failed: rescan with **Option (⌥)** held.
 
 Windows and Linux builds are compiled and tested automatically, but have not been tried in a DAW yet. Reports are welcome.
 
