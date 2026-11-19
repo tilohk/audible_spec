@@ -1,5 +1,5 @@
 audible_spec @VERSION@ - turn images into playable sounds
-https://github.com/tilohk/image-to-sound
+https://github.com/tilohk/audible_spec
 
 Licensed under the GNU AGPL v3 (see LICENSE). Built with JUCE (AGPLv3),
 libheif and libde265 (LGPLv3, Windows/Linux builds only).

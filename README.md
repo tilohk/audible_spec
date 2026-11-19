@@ -15,7 +15,7 @@ image → grayscale → gamma / contrast / blur / invert / flip
 
 ## Download and install
 
-Get the zip for your system from the [latest release](https://github.com/tilohk/image-to-sound/releases/latest). Each zip contains `INSTALL.txt` with the exact steps:
+Get the zip for your system from the [latest release](https://github.com/tilohk/audible_spec/releases/latest). Each zip contains `INSTALL.txt` with the exact steps:
 
 | System | Copy | To |
 |---|---|---|

@@ -179,7 +179,7 @@ juce_add_plugin(ImageToSound
     PLUGIN_MANUFACTURER_CODE Tlhk   # 4 chars, at least one upper case
     PLUGIN_CODE I2Sd                # 4 chars, unique per plugin
     FORMATS ${ITS_FORMATS}
-    LV2URI https://github.com/tilohk/image-to-sound
+    LV2URI https://github.com/tilohk/audible_spec
     IS_SYNTH TRUE
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT FALSE
