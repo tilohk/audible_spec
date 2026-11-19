@@ -92,6 +92,7 @@ jobs:
           case "$RUNNER_OS" in
             macOS)
               cp -R "$ART/VST3/audible_spec.vst3" "$ART/AU/audible_spec.component" "$ART/Standalone/audible_spec.app" "$OUT/"
+              cp packaging/install-macos.sh "$OUT/install-macos.sh" && chmod +x "$OUT/install-macos.sh"
               for b in "$OUT"/*.vst3 "$OUT"/*.component "$OUT"/*.app; do codesign --force --deep --sign - "$b"; done
               lipo -archs "$OUT/audible_spec.vst3/Contents/MacOS/audible_spec"
               ditto -c -k --keepParent "$OUT" "$OUT.zip" ;;
