@@ -23,6 +23,7 @@ Work happens one phase at a time, on a branch named `phase-N-<slug>`. A phase is
 | 5 UI | Layout from `docs/PLAN.md`; live image preview; drag-out WAV works into an Ableton track |
 | 6 State/presets | Project save → reopen restores the sound without re-render; 3 built-in presets load |
 | 7 Release | `pluginval --strictness-level 5` passes; `auval` passes; manual Ableton checklist in `docs/PLAN.md` done |
+| 8 Distribution | AGPLv3 `LICENSE`; GitHub Actions green on macOS (universal), Windows and Linux with all tests; a `v*` tag publishes three zips as a GitHub Release; macOS zip installs and loads in Ableton |
 
 At the end of each phase: report the gate items one by one, with evidence (command output), and ask the owner to confirm before merging into `main`.
 

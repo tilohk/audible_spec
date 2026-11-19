@@ -194,6 +194,7 @@ private:
                 // PNG decodes losslessly -> must be byte-identical. HEIC is lossy and Apple's
                 // decoder may differ from libde265 by a few levels.
                 const bool lossy = imageFile.hasFileExtension ("heic;heif");
+                // (Also exact with the Windows/Linux decoder: measured 0 levels for the RGBA PNG.)
                 expectStage ("resized (8-bit levels)", d, lossy ? 3.0 : 0.0);
             }
         }

@@ -102,6 +102,8 @@ Main points:
 6. **State & presets.** Save/load the plugin state; convert `presets/*.txt` (Clean, Dark/Texture, Bright/Percussive) into built-in render presets plus saving your own render presets.
 7. **Hardening & packaging.** Run `pluginval` and `auval -a`, test in Ableton (multiple instances, project reload, sample-rate change, freeze/bounce). Code signing and notarization come later if you want to share the plugin.
 
+8. **Distribution.** Open source under the AGPLv3 (the license JUCE is used under). Windows and Linux builds: image decoding with JUCE (PNG/JPEG/GIF) plus libheif/libde265 via vcpkg for HEIC; macOS keeps ImageIO. LV2 on Linux, universal macOS binary, version 1.0.0. GitHub Actions builds and tests all three platforms on every push and publishes zips as a GitHub Release for `v*` tags. No Apple notarization yet (users remove the quarantine flag once).
+
 Later options (from the README's roadmap): stereo/panning from image columns, Mel/Bark scales, batch rendering, slicing into multiple bands.
 
 ---

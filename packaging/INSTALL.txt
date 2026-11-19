@@ -1,0 +1,41 @@
+audible_spec @VERSION@ - turn images into playable sounds
+https://github.com/tilohk/image-to-sound
+
+Licensed under the GNU AGPL v3 (see LICENSE). Built with JUCE (AGPLv3),
+libheif and libde265 (LGPLv3, Windows/Linux builds only).
+
+INSTALL
+=======
+
+macOS
+-----
+  VST3:       copy audible_spec.vst3      to ~/Library/Audio/Plug-Ins/VST3/
+  AU:         copy audible_spec.component to ~/Library/Audio/Plug-Ins/Components/
+  Standalone: copy audible_spec.app       to /Applications/
+
+  The plug-in is not notarized by Apple. After copying, run this once in Terminal,
+  otherwise macOS may block it:
+
+    xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/audible_spec.vst3 ~/Library/Audio/Plug-Ins/Components/audible_spec.component /Applications/audible_spec.app
+
+  Universal build: Apple Silicon and Intel, macOS 11 or newer.
+
+Windows
+-------
+  VST3:       copy the folder audible_spec.vst3 to C:\Program Files\Common Files\VST3\
+  Standalone: audible_spec.exe runs from anywhere.
+  Windows 10/11, 64-bit.
+
+Linux
+-----
+  VST3:       copy audible_spec.vst3 to ~/.vst3/
+  LV2:        copy audible_spec.lv2  to ~/.lv2/
+  Standalone: run audible_spec from anywhere.
+  64-bit x86, glibc 2.35 or newer (Ubuntu 22.04+, Fedora 36+, ...).
+
+Then rescan plug-ins in your DAW (restart it if it was open).
+
+IMAGE FORMATS
+=============
+  macOS:         PNG, JPEG, HEIC/HEIF, TIFF, BMP, GIF, WebP
+  Windows/Linux: PNG, JPEG, HEIC/HEIF, GIF

@@ -1,0 +1,128 @@
+# Builds audible_spec on macOS (universal), Windows and Linux, runs all tests and packages
+# a zip per platform. Pushing a tag like v1.0.0 also publishes those zips as a GitHub Release.
+name: build
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Same commit as "builtin-baseline" in vcpkg.json: dependency versions stay fixed.
+  VCPKG_COMMIT: d13c536672dced4b8c671955ea7d057a1b7a1ff8
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-14
+            configure: >-
+              -G Ninja -DCMAKE_BUILD_TYPE=Release
+              "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
+          - name: Windows
+            os: windows-2022
+            triplet: x64-windows-static-md
+            configure: -G "Visual Studio 17 2022" -A x64
+          - name: Linux
+            os: ubuntu-22.04
+            triplet: x64-linux
+            configure: -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux packages (JUCE)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build xvfb libasound2-dev libjack-jackd2-dev ladspa-sdk \
+            libfreetype-dev libfontconfig1-dev libx11-dev libxcomposite-dev libxcursor-dev \
+            libxext-dev libxinerama-dev libxrandr-dev libxrender-dev libglu1-mesa-dev mesa-common-dev
+
+      - name: macOS tools
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: vcpkg (libheif + libde265)
+        if: runner.os != 'macOS'
+        shell: bash
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$RUNNER_TEMP/vcpkg"
+          git -C "$RUNNER_TEMP/vcpkg" checkout "$VCPKG_COMMIT"
+          if [ "$RUNNER_OS" = "Windows" ]; then "$RUNNER_TEMP/vcpkg/bootstrap-vcpkg.bat" -disableMetrics; \
+          else "$RUNNER_TEMP/vcpkg/bootstrap-vcpkg.sh" -disableMetrics; fi
+          echo "VCPKG_ARGS=-DCMAKE_TOOLCHAIN_FILE=$RUNNER_TEMP/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} -DVCPKG_MANIFEST_DIR=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+
+      - name: Configure
+        shell: bash
+        run: cmake -S plugin -B build ${{ matrix.configure }} -DITS_INSTALL_PLUGIN=OFF $VCPKG_ARGS
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Test
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a ctest --test-dir build -C Release --output-on-failure
+          else
+            ctest --test-dir build -C Release --output-on-failure
+          fi
+
+      - name: Package
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          [[ "$GITHUB_REF" == refs/tags/v* ]] || VERSION="dev-${GITHUB_SHA::7}"
+          OUT="audible_spec-$VERSION-${{ matrix.name }}"
+          ART=build/ImageToSound_artefacts/Release
+          mkdir -p "$OUT"
+          sed "s/@VERSION@/$VERSION/" packaging/INSTALL.txt > "$OUT/INSTALL.txt"
+          cp LICENSE "$OUT/LICENSE.txt"
+          case "$RUNNER_OS" in
+            macOS)
+              cp -R "$ART/VST3/audible_spec.vst3" "$ART/AU/audible_spec.component" "$ART/Standalone/audible_spec.app" "$OUT/"
+              for b in "$OUT"/*.vst3 "$OUT"/*.component "$OUT"/*.app; do codesign --force --deep --sign - "$b"; done
+              lipo -archs "$OUT/audible_spec.vst3/Contents/MacOS/audible_spec"
+              ditto -c -k --keepParent "$OUT" "$OUT.zip" ;;
+            Windows)
+              cp -R "$ART/VST3/audible_spec.vst3" "$ART/Standalone/audible_spec.exe" "$OUT/"
+              7z a "$OUT.zip" "$OUT" > /dev/null ;;
+            Linux)
+              cp -R "$ART/VST3/audible_spec.vst3" "$ART/LV2/audible_spec.lv2" "$ART/Standalone/audible_spec" "$OUT/"
+              zip -qr "$OUT.zip" "$OUT" ;;
+          esac
+          echo "ZIP=$OUT.zip" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audible_spec-${{ matrix.name }}
+          path: ${{ env.ZIP }}
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME" dist/*.zip
+          --repo "$GITHUB_REPOSITORY" --title "audible_spec ${GITHUB_REF_NAME#v}" --generate-notes

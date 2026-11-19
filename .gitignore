@@ -22,3 +22,6 @@ data/output/
 
 # macOS
 .DS_Store
+
+# IDE settings
+.idea/

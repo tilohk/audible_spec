@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(ImageToSound VERSION 0.1.0 LANGUAGES C CXX)
+project(ImageToSound VERSION 1.0.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -28,20 +28,43 @@ set(ITS_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/dsp/ImageProcessor.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/dsp/Spectrogram.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/dsp/GriffinLim.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/dsp/Renderer.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/image/ImageDecoder.cpp)
-# Rendering is far too slow unoptimised, so the DSP core is always built with -O2
-# (Debug builds keep their debug info).
-set_source_files_properties(${ITS_CORE_SOURCES} PROPERTIES COMPILE_OPTIONS "-O2")
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/dsp/Renderer.cpp)
+
+# Image decoding: macOS ImageIO on Apple; elsewhere JUCE (PNG/JPEG/GIF) + libheif (HEIC).
+# ITS_PORTABLE_DECODER=ON builds the Windows/Linux decoder on macOS too (for testing).
+option(ITS_PORTABLE_DECODER "Use the Windows/Linux image decoder" OFF)
+if(APPLE AND NOT ITS_PORTABLE_DECODER)
+    list(APPEND ITS_CORE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/Source/image/ImageDecoder.cpp)
+else()
+    list(APPEND ITS_CORE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/Source/image/ImageDecoderPortable.cpp)
+    find_package(libheif CONFIG QUIET)
+    if(NOT libheif_FOUND AND NOT APPLE)
+        message(FATAL_ERROR "libheif not found: configure with the vcpkg toolchain (see README)")
+    endif()
+endif()
+
+# Rendering is far too slow unoptimised, so the DSP core is always built optimised
+# (Debug builds keep their debug info). MSVC: /O2 clashes with Debug's /RTC1, so Release only.
+if(NOT MSVC)
+    set_source_files_properties(${ITS_CORE_SOURCES} PROPERTIES COMPILE_OPTIONS "-O2")
+endif()
 
 add_library(ImageToSoundCore INTERFACE)
 target_sources(ImageToSoundCore INTERFACE ${ITS_CORE_SOURCES})
 target_include_directories(ImageToSoundCore INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/Source)
 target_link_libraries(ImageToSoundCore INTERFACE
     juce::juce_core
-    juce::juce_dsp
-    "-framework ImageIO"
-    "-framework CoreGraphics")
+    juce::juce_dsp)
+if(APPLE AND NOT ITS_PORTABLE_DECODER)
+    target_link_libraries(ImageToSoundCore INTERFACE "-framework ImageIO" "-framework CoreGraphics")
+else()
+    target_link_libraries(ImageToSoundCore INTERFACE juce::juce_graphics)
+    target_compile_definitions(ImageToSoundCore INTERFACE ITS_PORTABLE_DECODER=1)
+    if(libheif_FOUND)
+        target_link_libraries(ImageToSoundCore INTERFACE heif)
+        target_compile_definitions(ImageToSoundCore INTERFACE ITS_HAVE_LIBHEIF=1)
+    endif()
+endif()
 
 set(ITS_CONSOLE_DEFINITIONS
     JUCE_WEB_BROWSER=0
@@ -138,13 +161,25 @@ add_test(NAME plugin_tests COMMAND PluginTests)
 # ------------------------------------------------------------------
 # The plugin
 # ------------------------------------------------------------------
+# Formats per platform: AU only exists on macOS, LV2 is for Linux hosts.
+if(APPLE)
+    set(ITS_FORMATS VST3 AU Standalone)
+elseif(UNIX)
+    set(ITS_FORMATS VST3 LV2 Standalone)
+else()
+    set(ITS_FORMATS VST3 Standalone)
+endif()
+# CI turns this off: it packages the build output instead of installing it.
+option(ITS_INSTALL_PLUGIN "Copy the plug-ins into the user's plug-in folders after building" ON)
+
 juce_add_plugin(ImageToSound
     PRODUCT_NAME "audible_spec"     # shown in the DAW; codes below keep it the same plugin
     COMPANY_NAME "Tilo Hauk"
     BUNDLE_ID com.tilohauk.imagetosound
     PLUGIN_MANUFACTURER_CODE Tlhk   # 4 chars, at least one upper case
     PLUGIN_CODE I2Sd                # 4 chars, unique per plugin
-    FORMATS VST3 AU Standalone
+    FORMATS ${ITS_FORMATS}
+    LV2URI https://github.com/tilohk/image-to-sound
     IS_SYNTH TRUE
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT FALSE
@@ -152,7 +187,7 @@ juce_add_plugin(ImageToSound
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     VST3_CATEGORIES Instrument Synth
     AU_MAIN_TYPE kAudioUnitType_MusicDevice
-    COPY_PLUGIN_AFTER_BUILD TRUE)   # installs into ~/Library/Audio/Plug-Ins for Ableton
+    COPY_PLUGIN_AFTER_BUILD ${ITS_INSTALL_PLUGIN})   # installs into the user's plug-in folders
 
 target_sources(ImageToSound PRIVATE ${ITS_AUDIO_SOURCES} ${ITS_PLUGIN_SOURCES})
 

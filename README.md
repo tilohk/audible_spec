@@ -1,226 +1,116 @@
-# Image-to-Sound Synthesizer
+# audible_spec
 
-Dieses Projekt verwandelt ein Bild in ein Spektrogramm und rekonstruiert daraus
-eine WAV-Datei, die anschließend z. B. in Ableton Live importiert werden kann.
+An instrument plugin that turns an image into sound. The image is read as a spectrogram (left → right is time, bottom → top is frequency, brightness is loudness). The phase is reconstructed with Griffin-Lim, and you play the result from MIDI like a sampler.
 
-## Pipeline
+- **Formats:** VST3 (macOS, Windows, Linux), AU (macOS), LV2 (Linux), plus a standalone app. Built with JUCE 8
+- **Tested in:** Ableton Live 12 (macOS)
+- **Validation:** passes `pluginval --strictness-level 5` (VST3 + AU) and `auval`
+- **License:** [GNU AGPL v3](LICENSE)
 
 ```text
-Foto
-  ↓
-Graustufen
-  ↓
-Gamma / Kontrast / Blur / Invertierung
-  ↓
-logarithmische Frequenzzuordnung
-  ↓
-Magnitude-Spektrogramm
-  ↓
-Griffin-Lim
-  ↓
-WAV
-  ↓
-Ableton Live
+image → grayscale → gamma / contrast / blur / invert / flip
+      → frequency mapping (log or linear) → magnitude spectrogram
+      → Griffin-Lim → sample → played from MIDI (envelope, pitch, loop, filter)
 ```
 
-## Installation
+## Download and install
 
-Python 3.10+ wird empfohlen.
+Get the zip for your system from the [latest release](https://github.com/tilohk/image-to-sound/releases/latest). Each zip contains `INSTALL.txt` with the exact steps:
+
+| System | Copy | To |
+|---|---|---|
+| macOS (Apple Silicon + Intel, 11+) | `audible_spec.vst3` / `audible_spec.component` | `~/Library/Audio/Plug-Ins/VST3/` / `~/Library/Audio/Plug-Ins/Components/` |
+| Windows 10/11 (64-bit) | `audible_spec.vst3` | `C:\Program Files\Common Files\VST3\` |
+| Linux (x86-64) | `audible_spec.vst3` / `audible_spec.lv2` | `~/.vst3/` / `~/.lv2/` |
+
+The macOS build is not notarized by Apple. After copying, run this once, otherwise macOS may block the plugin:
 
 ```bash
-pip install -r requirements.txt
+xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/audible_spec.vst3 ~/Library/Audio/Plug-Ins/Components/audible_spec.component
 ```
 
-## Verwendung
+Windows and Linux builds are compiled and tested automatically, but have not been tried in a DAW yet. Reports are welcome.
 
-1. Bild nach `data/images/` kopieren.
-2. In `main.py` `IMAGE_PATH` einstellen.
-3. Parameter im CONFIG-Bereich ändern.
-4. Starten:
+## Using the plugin
+
+1. **Load it** on a MIDI track (Instruments → Plug-Ins → audible_spec). A built-in test image is rendered right away, so it makes a sound immediately.
+2. **Load an image:** drag one onto the image area, or click **Load image**. Supported formats are PNG, JPEG, HEIC/HEIF and GIF, plus TIFF, BMP and WebP on macOS.
+3. **Shape the render:** click **View render settings**. The image preview updates live while you change the image settings. The sound changes only when you press **Render**, because rendering takes a few seconds. The bar shows the sound length and an estimate of the render time.
+4. **Start from somewhere else:**
+   - **Render preset:** three built-ins (Clean, Dark / Texture, Bright / Percussive) and your own (*Save current render settings as preset…*).
+   - **Dice:** sets random render settings and keeps length and quality.
+5. **Play** it from MIDI. C3 plays the sound at its original pitch.
+6. **Edit the sample** in the spectrogram:
+   - Drag the teal **start/end** markers to set the region that plays.
+   - Drag inside the region to move it without changing its length.
+7. **Drag WAV to track** puts the rendered sound on an audio track.
+
+Folding the render settings (**Hide render settings**) makes the window smaller when you only want to play.
+
+### Render settings (applied on Render)
+
+| Group | Setting | What it does |
+|---|---|---|
+| Image | Gamma | < 1 makes dark areas louder, > 1 pushes them down (1 = neutral) |
+| | Contrast, Blur | Contrast and smoothing of the image before conversion |
+| | Invert, Flip H, Flip V | Swap black/white, play backwards, upside down |
+| Frequency | Lowest, Highest | Frequency range the image height is mapped to |
+| | Scale | Logarithmic (equal height = equal musical interval, recommended) or linear |
+| | FFT size | Frequency resolution: larger is finer in pitch but blurrier in time |
+| Time and dynamics | Length | Sound length in seconds |
+| | Range | Dynamic range in dB from the brightest to the darkest pixel (60 dB is a good start) |
+| | Noise floor, Curve | Pixels below the floor are silent; the curve shapes the loudness of the rest |
+| Reconstruction | Iterations, Momentum | Griffin-Lim quality: more iterations sound cleaner but render slower |
+| | Seed | Starting phase. Another seed gives a slightly different texture |
+| | Peak level | Output level of the rendered sample |
+
+Hop length and spectral smoothing are not shown in the UI. They keep their defaults, or a preset's values.
+
+The image contains no phase information, so Griffin-Lim estimates it. That's why the result has its typical slightly smeared, "spectral" character.
+
+### Playback (real-time, automatable)
+
+| Group | Controls |
+|---|---|
+| Envelope | Attack, Decay, Sustain, Release |
+| Pitch | Transpose (±24 semitones), Tune (cents), Key Tracking on/off |
+| Sample | Start, End, loop crossfade, Loop on/off, Reverse |
+| Filter | Low-pass, High-pass, Slope 12 or 24 dB/octave |
+| Output | Gain, Mono/Poly |
+
+Note velocity always scales the volume. Pitch bend is ±2 semitones.
+
+### Ideas for Usage
+
+- Short or narrow spectrogram samples work well as one-shots; long, wide samples as atmospheric textures.
+- Layer the same image with different render settings on several tracks.
+- Render a narrow frequency band per track (Lowest/Highest) and mix the bands.
+- Drag the WAV to an audio track and warp, slice or resample it further.
+
+## Python reference
+
+`main.py` is the original script and remains the **reference implementation**. The C++ code is tested against fixtures exported from it, and up to the magnitude spectrogram they match within about 1e-6. You can still use it on its own:
 
 ```bash
-python main.py
+python3 -m venv venv
+venv/bin/python -m pip install -r requirements-dev.txt
+venv/bin/python main.py            # settings: the CONFIG section at the top of main.py
 ```
 
-Die Dateien werden unter `data/output/` erzeugt:
+It writes a WAV and a spectrogram PNG to `data/output/`. Put your own images into `data/images/` (git-ignored) and set `IMAGE_PATH`. The render preset files in `presets/` use the same `KEY = value` format as the CONFIG section.
 
-```text
-testneu1.wav
-testneu1_spec.png
+There is also a command-line renderer built from the C++ code:
+
+```bash
+plugin/build/RenderCli_artefacts/Debug/render_cli reference/test_images/scene_portrait.heic out.wav --set n_fft=2048
 ```
 
-## Wichtige Parameter
+## Development
 
-### Bild
+Building needs CMake, Ninja and a C++20 compiler; JUCE is downloaded by CMake. On Windows and Linux, HEIC support comes from libheif via [vcpkg](https://vcpkg.io) (see [`.github/workflows/build.yml`](.github/workflows/build.yml) for the exact commands). Every push is built and tested on macOS, Windows and Linux; pushing a tag like `v1.0.0` publishes the zips as a GitHub Release.
 
-`GAMMA`
+Work follows the phase plan in [docs/PLAN.md](docs/PLAN.md). The rules are in [CLAUDE.md](CLAUDE.md) and `.claude/rules/`. The `.githooks/pre-commit` hook checks formatting and the real-time safety lint, and runs the build and tests. Never bypass it.
 
-- `0.3` – dunkle Bildbereiche werden stärker hörbar
-- `0.5` – guter Ausgangspunkt
-- `1.0` – neutral
-- `2.0` – dunkle Bereiche werden stärker unterdrückt
+## License
 
-`BLUR`
-
-Glättet das Bild vor der Umwandlung.
-
-`CONTRAST`
-
-Verändert den Kontrast.
-
-`INVERT`
-
-Kehrt Schwarz und Weiß um.
-
-`FLIP_HORIZONTAL`
-
-Dreht das Bild zeitlich um.
-
-`FLIP_VERTICAL`
-
-Spiegelt das Bild vertikal. Für die normale Bildinterpretation sollte das
-aktiviert bleiben.
-
-### Frequenz
-
-`FMIN` und `FMAX`
-
-Bestimmen den musikalisch relevanten Frequenzbereich.
-
-Beispiel:
-
-```python
-FMIN = 40
-FMAX = 8000
-```
-
-`FREQUENCY_SCALE = "log"`
-
-Das ist für musikalische Ergebnisse empfehlenswert.
-
-Bei logarithmischer Zuordnung entsprechen gleiche vertikale Abstände
-annähernd gleichen musikalischen Intervallen.
-
-Zum Vergleich:
-
-```python
-FREQUENCY_SCALE = "linear"
-```
-
-### Zeit
-
-Die horizontale Bildachse entspricht der Zeit.
-
-Die ungefähre Länge ergibt sich aus:
-
-```text
-WIDTH × HOP_LENGTH / SAMPLE_RATE
-```
-
-Bei:
-
-```python
-WIDTH = 1024
-HOP_LENGTH = 256
-SAMPLE_RATE = 44100
-```
-
-entstehen ungefähr 5.95 Sekunden Audio.
-
-### Dynamic Range
-
-`DYNAMIC`
-
-Beispiel:
-
-```python
-DYNAMIC = 40
-DYNAMIC = 60
-DYNAMIC = 80
-```
-
-60 dB ist ein guter Startpunkt.
-
-### Griffin-Lim
-
-`GRIFFIN_LIM_ITERATIONS`
-
-Mehr Iterationen können die Rekonstruktion verbessern, kosten aber Zeit.
-
-Gute Ausgangswerte:
-
-```python
-32
-64
-128
-```
-
-Der erzeugte Sound ist nicht identisch mit einem Audio-Signal, das ursprünglich
-dieses Spektrogramm erzeugt hätte, weil das Bild keine Phaseninformation enthält.
-Griffin-Lim schätzt diese Phase.
-
-## Ableton
-
-Die erzeugte WAV-Datei kann direkt in Ableton Live gezogen werden.
-
-Besonders interessant ist:
-
-- WAV als Audio Clip
-- Warp ausschalten oder bewusst einsetzen
-- Clip in Simpler/Sampler laden
-- einzelne Frequenzbereiche separat erzeugen
-- verschiedene Gamma-/Dynamic-Presets als Layer verwenden
-- kurze Bilder/Sound-Segmente als One-Shots verwenden
-- lange Bilder als atmosphärische Texturen verwenden
-
-## Kreative Presets
-
-### Clean
-
-```python
-GAMMA = 1.0
-BLUR = 0.0
-CONTRAST = 1.0
-DYNAMIC = 60
-FMIN = 40
-FMAX = 8000
-```
-
-### Dark / Texture
-
-```python
-GAMMA = 0.35
-BLUR = 2.0
-CONTRAST = 1.2
-DYNAMIC = 70
-FMIN = 30
-FMAX = 12000
-```
-
-### Bright / Percussive
-
-```python
-GAMMA = 1.5
-BLUR = 0.0
-CONTRAST = 1.8
-DYNAMIC = 50
-FMIN = 100
-FMAX = 12000
-```
-
-## Nächste sinnvolle Erweiterungen
-
-Das Projekt lässt sich danach gut erweitern um:
-
-1. automatische Ziel-Dauer statt indirekter Dauer über WIDTH
-2. verschiedene Frequenz-Skalen
-3. Mel-Skala
-4. Bark-Skala
-5. Stereo-Synthese
-6. Panorama aus horizontalen Bildinformationen
-7. mehrere Frequenz-Bänder als getrennte WAV-Dateien
-8. Pitch-Shifting
-9. Time-Stretching
-10. Preset-Dateien
-11. Batch-Verarbeitung mehrerer Bilder
-12. direkte Ableton-orientierte One-Shot- und Loop-Erzeugung
+audible_spec is free software under the [GNU Affero General Public License v3](LICENSE): you may use, study, change and share it, and anything you distribute based on it must be released under the same license with its source code. It uses [JUCE](https://juce.com) under the AGPLv3, and on Windows/Linux [libheif](https://github.com/strukturag/libheif) and [libde265](https://github.com/strukturag/libde265) (LGPLv3).
