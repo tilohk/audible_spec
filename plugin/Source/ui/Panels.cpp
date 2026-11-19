@@ -410,7 +410,7 @@ class PlaybackPanel::IconToggle final : public juce::ToggleButton
 {
 public:
     explicit IconToggle (int iconToDraw) : icon (iconToDraw) {}
-    explicit IconToggle (const juce::String& text) : icon (-1) { setButtonText (text); }
+    explicit IconToggle (const juce::String& label) : icon (-1) { setButtonText (label); }
 
     void paintButton (juce::Graphics& g, bool over, bool) override
     {
