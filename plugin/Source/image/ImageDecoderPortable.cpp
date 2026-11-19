@@ -26,13 +26,21 @@ bool looksLikeHeif (const std::uint8_t* bytes, size_t size)
 }
 
 #if ITS_HAVE_LIBHEIF
-template <typename T, void (*Release) (T*)> struct HeifHolder
+// Frees libheif objects (their release functions take const pointers in newer versions).
+struct HeifFree
+{
+    void operator() (heif_context* p) const { heif_context_free (p); }
+    void operator() (heif_image_handle* p) const { heif_image_handle_release (p); }
+    void operator() (heif_image* p) const { heif_image_release (p); }
+    void operator() (heif_decoding_options* p) const { heif_decoding_options_free (p); }
+};
+template <typename T> struct HeifHolder
 {
     T* ptr = nullptr;
     ~HeifHolder()
     {
         if (ptr != nullptr)
-            Release (ptr);
+            HeifFree{}(ptr);
     }
 };
 
@@ -41,7 +49,7 @@ std::optional<RgbaImage> decodeHeif (const void* data, size_t size, juce::String
     static const bool initialised = [] { return heif_init (nullptr).code == heif_error_Ok; }();
     juce::ignoreUnused (initialised);
 
-    HeifHolder<heif_context, heif_context_free> context{heif_context_alloc()};
+    HeifHolder<heif_context> context{heif_context_alloc()};
     if (context.ptr == nullptr ||
         heif_context_read_from_memory_without_copy (context.ptr, data, size, nullptr).code != heif_error_Ok)
     {
@@ -49,7 +57,7 @@ std::optional<RgbaImage> decodeHeif (const void* data, size_t size, juce::String
         return std::nullopt;
     }
 
-    HeifHolder<heif_image_handle, heif_image_handle_release> handle;
+    HeifHolder<heif_image_handle> handle;
     if (heif_context_get_primary_image_handle (context.ptr, &handle.ptr).code != heif_error_Ok)
     {
         error = "The HEIC/HEIF file has no image.";
@@ -57,10 +65,10 @@ std::optional<RgbaImage> decodeHeif (const void* data, size_t size, juce::String
     }
 
     // Like ImageIO on macOS: rotation/mirroring metadata is not applied.
-    HeifHolder<heif_decoding_options, heif_decoding_options_free> options{heif_decoding_options_alloc()};
+    HeifHolder<heif_decoding_options> options{heif_decoding_options_alloc()};
     options.ptr->ignore_transformations = 1;
 
-    HeifHolder<heif_image, heif_image_release> image;
+    HeifHolder<heif_image> image;
     if (heif_decode_image (handle.ptr, &image.ptr, heif_colorspace_RGB, heif_chroma_interleaved_RGBA,
                            options.ptr)
             .code != heif_error_Ok)

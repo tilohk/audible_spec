@@ -52,6 +52,9 @@ endif()
 add_library(ImageToSoundCore INTERFACE)
 target_sources(ImageToSoundCore INTERFACE ${ITS_CORE_SOURCES})
 target_include_directories(ImageToSoundCore INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/Source)
+if(MSVC)
+    target_compile_definitions(ImageToSoundCore INTERFACE _USE_MATH_DEFINES) # M_PI in <cmath>
+endif()
 target_link_libraries(ImageToSoundCore INTERFACE
     juce::juce_core
     juce::juce_dsp)
