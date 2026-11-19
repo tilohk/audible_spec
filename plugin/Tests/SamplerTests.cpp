@@ -445,8 +445,9 @@ public:
         beginTest ("the allocation counter itself works");
         {
             ScopedAllocationCounter counter;
-            auto* p = new int (1);
-            delete p;
+            // A direct call: optimisers may remove a `new int` whose result is unused.
+            void* p = ::operator new (sizeof (int));
+            ::operator delete (p);
             expectEquals ((int)counter.count(), 1);
         }
     }

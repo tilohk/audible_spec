@@ -4,6 +4,10 @@
 #include <cstdlib>
 #include <new>
 
+#if defined(_WIN32)
+#include <malloc.h>
+#endif
+
 namespace
 {
 thread_local bool countingOnThisThread = false;
@@ -24,9 +28,24 @@ void* allocateAligned (std::size_t size, std::align_val_t alignment)
         ++allocationsOnThisThread;
     void* p = nullptr;
     const auto a = std::max ((std::size_t)alignment, sizeof (void*));
+#if defined(_WIN32)
+    p = _aligned_malloc (size == 0 ? 1 : size, a); // must be freed with _aligned_free
+    if (p == nullptr)
+        throw std::bad_alloc();
+#else
     if (posix_memalign (&p, a, size == 0 ? 1 : size) != 0)
         throw std::bad_alloc();
+#endif
     return p;
+}
+
+void freeAligned (void* p) noexcept
+{
+#if defined(_WIN32)
+    _aligned_free (p);
+#else
+    std::free (p);
+#endif
 }
 } // namespace
 
@@ -99,17 +118,17 @@ void operator delete[] (void* p, std::size_t) noexcept
 }
 void operator delete (void* p, std::align_val_t) noexcept
 {
-    std::free (p);
+    freeAligned (p);
 }
 void operator delete[] (void* p, std::align_val_t) noexcept
 {
-    std::free (p);
+    freeAligned (p);
 }
 void operator delete (void* p, std::size_t, std::align_val_t) noexcept
 {
-    std::free (p);
+    freeAligned (p);
 }
 void operator delete[] (void* p, std::size_t, std::align_val_t) noexcept
 {
-    std::free (p);
+    freeAligned (p);
 }

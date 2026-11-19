@@ -69,6 +69,14 @@ else()
     endif()
 endif()
 
+# FFT: macOS uses Apple's vDSP through JUCE. Elsewhere JUCE's fallback FFT is ~10x slower,
+# so Windows/Linux link FFTW (GPL, compatible with the AGPL) statically from vcpkg.
+if(NOT APPLE)
+    find_package(FFTW3f CONFIG REQUIRED)
+    target_link_libraries(ImageToSoundCore INTERFACE FFTW3::fftw3f)
+    target_compile_definitions(ImageToSoundCore INTERFACE JUCE_DSP_USE_STATIC_FFTW=1)
+endif()
+
 set(ITS_CONSOLE_DEFINITIONS
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0

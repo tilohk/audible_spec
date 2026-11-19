@@ -190,15 +190,17 @@ ByteImage contrast (const ByteImage& in, double factor)
 
     for (auto& v : out.data)
     {
-        // C: (int)in1 + alpha * ((int)in2 - (int)in1), evaluated in float
+        // C: (int)in1 + alpha * ((int)in2 - (int)in1), evaluated in float. The reference Pillow
+        // build fuses this into one multiply-add (FMA, single rounding); std::fma reproduces that
+        // on every CPU, so results don't depend on whether the compiler fuses it.
         const auto in1 = (float)mean, delta = (float)(v - mean);
+        const float temp = std::fma (alpha, delta, in1);
         if (alpha >= 0 && alpha <= 1.0f)
         {
-            v = (std::uint8_t)(in1 + alpha * delta);
+            v = (std::uint8_t)temp;
         }
         else
         {
-            const float temp = in1 + alpha * delta;
             v = temp <= 0.0f ? 0 : (temp >= 255.0f ? 255 : (std::uint8_t)temp);
         }
     }

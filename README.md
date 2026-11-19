@@ -113,4 +113,4 @@ Work follows the phase plan in [docs/PLAN.md](docs/PLAN.md). The rules are in [C
 
 ## License
 
-audible_spec is free software under the [GNU Affero General Public License v3](LICENSE): you may use, study, change and share it, and anything you distribute based on it must be released under the same license with its source code. It uses [JUCE](https://juce.com) under the AGPLv3, and on Windows/Linux [libheif](https://github.com/strukturag/libheif) and [libde265](https://github.com/strukturag/libde265) (LGPLv3).
+audible_spec is free software under the [GNU Affero General Public License v3](LICENSE): you may use, study, change and share it, and anything you distribute based on it must be released under the same license with its source code. It uses [JUCE](https://juce.com) under the AGPLv3, and on Windows/Linux [libheif](https://github.com/strukturag/libheif) and [libde265](https://github.com/strukturag/libde265) (LGPLv3) and [FFTW](https://www.fftw.org) (GPLv2+).
