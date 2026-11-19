@@ -128,8 +128,13 @@ std::vector<Preset> builtIns()
 
 juce::File userFolder()
 {
-    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-        .getChildFile ("Application Support/audible_spec/Presets");
+    // macOS: ~/Library/Application Support/..., Windows: %APPDATA%\..., Linux: ~/.config/...
+    const auto base = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory);
+#if JUCE_MAC
+    return base.getChildFile ("Application Support/audible_spec/Presets");
+#else
+    return base.getChildFile ("audible_spec/Presets");
+#endif
 }
 
 std::vector<Preset> userPresets()

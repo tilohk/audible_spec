@@ -87,9 +87,14 @@ public:
     float getPlayheadPosition() const noexcept { return engine.getPlayheadPosition(); }
 
     // Image file types the plugin accepts: wildcards for file choosers, extensions for drag and drop.
+#if JUCE_MAC
     static constexpr const char* imageWildcard =
         "*.png;*.jpg;*.jpeg;*.heic;*.heif;*.tif;*.tiff;*.bmp;*.gif;*.webp";
     static constexpr const char* imageExtensions = "png;jpg;jpeg;heic;heif;tif;tiff;bmp;gif;webp";
+#else
+    static constexpr const char* imageWildcard = "*.png;*.jpg;*.jpeg;*.heic;*.heif;*.gif";
+    static constexpr const char* imageExtensions = "png;jpg;jpeg;heic;heif;gif";
+#endif
 
 private:
     void onRenderFinished (its::RenderJob::Output output); // render thread

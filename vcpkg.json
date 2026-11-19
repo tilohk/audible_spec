@@ -1,0 +1,16 @@
+{
+  "name": "audible-spec",
+  "version": "1.0.0",
+  "description": "Windows/Linux dependencies: HEIC decoding (libheif with the libde265 HEVC decoder only) and a fast FFT (FFTW, single precision).",
+  "builtin-baseline": "d13c536672dced4b8c671955ea7d057a1b7a1ff8",
+  "dependencies": [
+    {
+      "name": "libheif",
+      "default-features": false,
+      "features": [
+        "libde265"
+      ]
+    },
+    "fftw3"
+  ]
+}

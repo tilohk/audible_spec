@@ -15,6 +15,7 @@
 
 #include <juce_dsp/juce_dsp.h>
 
+#include <algorithm>
 #include <random>
 
 namespace its::test
@@ -66,7 +67,9 @@ template <typename T> Matrix<T> toMatrix (const NpyArray& a)
 
 std::vector<float> toVector (const NpyArray& a)
 {
-    return {a.values.begin(), a.values.end()};
+    std::vector<float> out (a.values.size());
+    std::transform (a.values.begin(), a.values.end(), out.begin(), [] (double v) { return (float)v; });
+    return out;
 }
 
 juce::String describe (const Diff& d)
@@ -158,9 +161,9 @@ public:
     }
 
 private:
-    NpyArray stage (const juce::File& dir, const char* name)
+    NpyArray stage (const juce::File& dir, const char* stageName)
     {
-        return loadNpy (dir.getChildFile (juce::String (name) + ".npy"));
+        return loadNpy (dir.getChildFile (juce::String (stageName) + ".npy"));
     }
 
     void expectStage (const juce::String& label, const Diff& d, double tolerance)
@@ -172,16 +175,16 @@ private:
 
     void runCase (const juce::File& dir)
     {
-        const auto name = dir.getFileName();
+        const auto caseName = dir.getFileName();
         const auto json = juce::JSON::parse (dir.getChildFile ("params.json"));
         const auto metrics = juce::JSON::parse (dir.getChildFile ("metrics.json"));
         const auto params = RenderParams::fromJson (json);
 
-        beginTest (name + ": params");
+        beginTest (caseName + ": params");
         expect (params.validate().isEmpty(), params.validate());
 
         // --- decode + grayscale + LANCZOS resize (from the image file) ---
-        beginTest (name + ": decode + grayscale + resize");
+        beginTest (caseName + ": decode + grayscale + resize");
         {
             const auto imageFile = repoRoot.getChildFile (json["image_path"].toString());
             juce::String error;
@@ -194,42 +197,43 @@ private:
                 // PNG decodes losslessly -> must be byte-identical. HEIC is lossy and Apple's
                 // decoder may differ from libde265 by a few levels.
                 const bool lossy = imageFile.hasFileExtension ("heic;heif");
+                // (Also exact with the Windows/Linux decoder: measured 0 levels for the RGBA PNG.)
                 expectStage ("resized (8-bit levels)", d, lossy ? 3.0 : 0.0);
             }
         }
 
         // --- image processing (from Python's resized.npy) ---
-        beginTest (name + ": process_image");
+        beginTest (caseName + ": process_image");
         const auto resized = toMatrix<std::uint8_t> (stage (dir, "resized"));
         const auto pixels = processImage (resized, params);
         expectStage ("pixels", compare (pixels.data, pixels.rows, pixels.cols, stage (dir, "pixels")),
                      stageTolerance);
 
-        beginTest (name + ": frequency axis");
+        beginTest (caseName + ": frequency axis");
         const auto freqs = buildFrequencyAxis (params);
         expectStage ("frequencies (Hz)", compare (freqs, (int)freqs.size(), 1, stage (dir, "frequencies")),
                      1e-9);
 
-        beginTest (name + ": apply_frequency_mapping");
+        beginTest (caseName + ": apply_frequency_mapping");
         const auto pyPixels = toMatrix<float> (stage (dir, "pixels"));
         const auto mapped = applyFrequencyMapping (pyPixels, freqs, params);
         expectStage ("mapped", compare (mapped.data, mapped.rows, mapped.cols, stage (dir, "mapped")),
                      stageTolerance);
 
-        beginTest (name + ": shape_magnitude");
+        beginTest (caseName + ": shape_magnitude");
         const auto pyMapped = toMatrix<float> (stage (dir, "mapped"));
         const auto magnitude = shapeMagnitude (pyMapped, params);
         expectStage ("magnitude",
                      compare (magnitude.data, magnitude.rows, magnitude.cols, stage (dir, "magnitude")),
                      stageTolerance);
 
-        beginTest (name + ": normalize_audio");
+        beginTest (caseName + ": normalize_audio");
         const auto pyRaw = toVector (stage (dir, "raw_audio"));
         const auto audio = normalizeAudio (pyRaw, params.outputGain);
         expectStage ("audio", compare (audio, (int)audio.size(), 1, stage (dir, "audio")), 1e-6);
 
         // --- STFT parity: our STFT measures Python's audio like librosa does ---
-        beginTest (name + ": STFT matches librosa (spectral convergence of Python's audio)");
+        beginTest (caseName + ": STFT matches librosa (spectral convergence of Python's audio)");
         const auto pyMagnitude = toMatrix<float> (stage (dir, "magnitude"));
         const double pySc = (double)metrics["griffin_lim_spectral_convergence"];
         const double scOfPython = spectralConvergence (pyRaw, pyMagnitude, params);
@@ -238,7 +242,7 @@ private:
         expectWithinAbsoluteError (scOfPython, pySc, 1e-4);
 
         // --- Griffin-Lim: same seed -> same initial phase as librosa (NumPy RandomState) ---
-        beginTest (name + ": Griffin-Lim converges at least as well as librosa");
+        beginTest (caseName + ": Griffin-Lim converges at least as well as librosa");
         const auto cppAudio = griffinLim (pyMagnitude, params);
         expect (cppAudio.has_value());
         if (cppAudio)

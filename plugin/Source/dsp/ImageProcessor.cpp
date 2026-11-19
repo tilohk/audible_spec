@@ -26,7 +26,7 @@ constexpr int precisionBits = 32 - 8 - 2;
 
 double sincFilter (double x)
 {
-    if (x == 0.0)
+    if (juce::exactlyEqual (x, 0.0))
         return 1.0;
     x = x * M_PI;
     return std::sin (x) / x;
@@ -82,7 +82,7 @@ Coefficients precomputeCoefficients (int inSize, int outSize)
             ww += w;
         }
         for (int x = 0; x < xmax; ++x)
-            if (ww != 0.0)
+            if (!juce::exactlyEqual (ww, 0.0))
                 k[x] /= ww;
 
         c.bounds[(size_t)xx * 2] = xmin;
@@ -180,25 +180,27 @@ ByteImage contrast (const ByteImage& in, double factor)
     // Image.blend(degenerate, image, factor) with C float alpha
     const float alpha = (float)factor;
     ByteImage out = in;
-    if (alpha == 0.0f)
+    if (juce::exactlyEqual (alpha, 0.0f))
     {
         std::fill (out.data.begin(), out.data.end(), (std::uint8_t)mean);
         return out;
     }
-    if (alpha == 1.0f)
+    if (juce::exactlyEqual (alpha, 1.0f))
         return out;
 
     for (auto& v : out.data)
     {
-        // C: (int)in1 + alpha * ((int)in2 - (int)in1), evaluated in float
+        // C: (int)in1 + alpha * ((int)in2 - (int)in1), evaluated in float. The reference Pillow
+        // build fuses this into one multiply-add (FMA, single rounding); std::fma reproduces that
+        // on every CPU, so results don't depend on whether the compiler fuses it.
         const auto in1 = (float)mean, delta = (float)(v - mean);
+        const float temp = std::fma (alpha, delta, in1);
         if (alpha >= 0 && alpha <= 1.0f)
         {
-            v = (std::uint8_t)(in1 + alpha * delta);
+            v = (std::uint8_t)temp;
         }
         else
         {
-            const float temp = in1 + alpha * delta;
             v = temp <= 0.0f ? 0 : (temp >= 255.0f ? 255 : (std::uint8_t)temp);
         }
     }
@@ -307,7 +309,7 @@ ByteImage transpose (const ByteImage& in)
 
 ByteImage gaussianBlur (const ByteImage& in, double radius)
 {
-    if (radius == 0.0)
+    if (juce::exactlyEqual (radius, 0.0))
         return in;
 
     constexpr int passes = 3;
@@ -315,7 +317,7 @@ ByteImage gaussianBlur (const ByteImage& in, double radius)
 
     // ImagingBoxBlur: n horizontal passes, then transpose, n passes, transpose back
     ByteImage out = in;
-    if (r != 0.0f)
+    if (!juce::exactlyEqual (r, 0.0f))
     {
         for (int i = 0; i < passes; ++i)
             horizontalBoxBlur (out, r);
@@ -346,7 +348,7 @@ FloatMatrix processImage (const ByteImage& resized, const RenderParams& params)
     ByteImage img = resized;
     if (params.invert)
         img = pil::invert (img);
-    if (params.contrast != 1.0)
+    if (!juce::exactlyEqual (params.contrast, 1.0))
         img = pil::contrast (img, params.contrast);
     if (params.blur > 0)
         img = pil::gaussianBlur (img, params.blur);
